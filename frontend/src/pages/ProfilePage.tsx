@@ -45,10 +45,17 @@ export function ProfilePage({ user, onUpdate, onLogout }: ProfilePageProps) {
       if (form.email !== user.email) payload.email = form.email
       if (form.password) payload.password = form.password
 
+      const emailChanged = !!payload.email
+
       const updated = await authApi.updateMe(payload)
       onUpdate(updated)
       setForm(f => ({ ...f, password: '' }))
-      toast('Профіль оновлено', 'success')
+
+      if (emailChanged) {
+        toast('Email змінено — підтвердьте нову адресу', 'info')
+      } else {
+        toast('Профіль оновлено', 'success')
+      }
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {

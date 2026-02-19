@@ -18,6 +18,7 @@ class UserCreate(UserBase):
 class UserRead(UserBase):
     id: int
     is_admin: bool
+    is_verified: bool
     model_config={"from_attributes": True}
 
 
@@ -31,6 +32,9 @@ class UserUpdate(BaseModel):
     email: Optional[str] = Field(None, max_length=100)
     password: Optional[str] = Field(None, min_length=6)
 
+
+class VerifyEmail(BaseModel):
+    code: str
 
 # ========= ADMIN SCHEMAS =========
 

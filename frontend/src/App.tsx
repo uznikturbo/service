@@ -3,6 +3,7 @@ import { apiClient, authApi } from './api'
 import { ToastProvider } from './context/ToastContext'
 import { AuthScreen } from './components/AuthScreen'
 import { Sidebar } from './components/Sidebar'
+import { VerifyBanner } from './components/VerifyBanner'
 import { ProblemsList } from './pages/ProblemsList'
 import { ProblemDetail } from './pages/ProblemDetail'
 import { ProfilePage } from './pages/ProfilePage'
@@ -113,6 +114,7 @@ function AppContent() {
         </div>
 
         <div className="content">
+          <VerifyBanner user={user} onVerified={setUser} />
           {page === 'problems' && !selectedProblem && (
             <ProblemsList user={user} onSelect={setSelectedProblem} />
           )}

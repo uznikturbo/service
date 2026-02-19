@@ -22,6 +22,8 @@ services:
 
   backend:
     build: ./backend
+    volumes:
+      - ./backend:/app
     container_name: fastapi_backend
     ports:
       - "8000:8000"

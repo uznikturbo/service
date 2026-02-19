@@ -3,3 +3,6 @@
 /__pycache__
 /backend/__pycache__
 /backend/.env
+/backend/alembic.ini
+/backend/migrations
+/backend/tests/__pycache__

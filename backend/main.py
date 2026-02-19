@@ -1,16 +1,20 @@
 import json
-from contextlib import asynccontextmanager
+import os
+import random
+import string
 from datetime import datetime, timezone
 from typing import List
 
 import crud
 import schemas
-from db import Base, engine, get_db
+from db import get_db
 from dotenv import load_dotenv
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi.background import BackgroundTasks
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from jose import JWTError, jwt
 from models import User
 from redis_config import get_redis
@@ -19,13 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 load_dotenv()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,22 +74,102 @@ async def get_current_user(
     
     return user
 
-async def get_current_admin(user: User = Depends(get_current_user)):
+
+async def get_verified_user(user: User = Depends(get_current_user)):
+    if not user.is_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your email not verified")
+    
+    return user
+
+
+async def get_current_admin(user: User = Depends(get_verified_user)):
     if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
+
+conf = ConnectionConfig(
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM = os.getenv("MAIL_FROM"),
+    MAIL_PORT = 587,
+    MAIL_SERVER = "smtp.gmail.com",
+    MAIL_STARTTLS = True,
+    MAIL_SSL_TLS = False,
+    USE_CREDENTIALS = True,
+    VALIDATE_CERTS = True
+)
+
+def generate_code():
+    return "".join(random.choices(string.digits, k=6))
+
 # ========== USER ENDPOINTS ==========
 
-@app.post("/register/", response_model=schemas.UserRead)
-async def register(user: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
+@app.post("/register", response_model=schemas.UserRead)
+async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
     if await crud.get_user_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already exists")
     if await crud.get_user_by_username(db, user.username):
         raise HTTPException(status_code=400, detail="Username already taken")
-    return await crud.create_user(db, user)
+    
+    new_user = await crud.create_user(db, user)
 
-@app.post("/login/", response_model=schemas.Token)
+    code = generate_code()
+    await redis.set(f"verification:{new_user.id}", code, ex=600)
+
+    message = MessageSchema(
+        subject="Код верифікації",
+        recipients=[new_user.email],
+        body=f"Ваш код для підтвердження пошти: {code}",
+        subtype=MessageType.plain
+    )
+    fm = FastMail(conf)
+    background_tasks.add_task(fm.send_message, message)
+
+    return new_user
+
+
+@app.post("/verify-email")
+async def verify_email(data: schemas.VerifyEmail, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
+    if current_user.is_verified:
+        return {"message": "Email already verified"}
+
+    cached_code = await redis.get(f"verification:{current_user.id}")
+
+    if cached_code is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code expired or not found")
+    
+    if cached_code != data.code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Code")
+    
+    await crud.verify_user(db, current_user.id)
+
+    await redis.delete(f"verification:{current_user.id}")
+
+    return {"message": "Email successfully verified"}
+
+@app.post("/resend-code")
+async def resend_code(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), redis = Depends(get_redis)):
+    code = await redis.get(f"verification:{current_user.id}")
+
+    if code is None:
+        code = generate_code()
+        await redis.set(f"verification:{current_user.id}", code, ex=600)
+
+    message = MessageSchema(
+    subject="Код верифікації",
+    recipients=[current_user.email],
+    body=f"Ваш код для підтвердження пошти: {code}",
+    subtype=MessageType.plain
+    )
+    fm = FastMail(conf)
+    background_tasks.add_task(fm.send_message, message)
+
+    return {"message": "Code successfully sent"}
+
+
+
+@app.post("/login", response_model=schemas.Token)
 async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
     db_user = await crud.authenticate_user(db, user.email, user.password)
     if not db_user:
@@ -123,13 +201,41 @@ async def delete_user(
     
     return await crud.delete_user(db, current_user.id)
 
+@app.patch("/users/me", response_model=schemas.UserRead)
+async def update_profile(update_data: schemas.UserUpdate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), redis = Depends(get_redis)):
+    updated_user, email_changed = await crud.update_user(db, update_data, current_user.id)
+
+    if not updated_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if email_changed:
+        code = generate_code()
+
+        await redis.set(f"verification:{updated_user.id}", code, ex=600)
+
+        message = MessageSchema(
+            subject="Підтвердження нової пошти",
+            recipients=[updated_user.email],
+            body=f"Ви змінили пошту. Ваш новий код підтвердження: {code}",
+            subtype=MessageType.plain
+        )    
+
+        fm = FastMail(conf)
+        background_tasks.add_task(fm.send_message, message)
+
+        return updated_user
+
+@app.post("/users/makeadmin")
+async def make_admin(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_verified_user)):
+    return await crud.make_admin(db, current_user.id)
+
 # =========== PROBLEM ENDPOINTS =============
 
-@app.post("/problems/", response_model=schemas.ProblemRead)
+@app.post("/problems", response_model=schemas.ProblemRead)
 async def create_problem(
     problem: schemas.ProblemCreate, 
     db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
 ):
     new_problem = await crud.create_problem(db, problem, current_user.id)
@@ -137,10 +243,10 @@ async def create_problem(
     await redis.delete(problems_list_key(0, True))
     return new_problem
 
-@app.get("/problems/", response_model=List[schemas.ProblemRead])
+@app.get("/problems", response_model=List[schemas.ProblemRead])
 async def get_problems(
     db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
 ):
     key = problems_list_key(current_user.id, current_user.is_admin)
@@ -157,11 +263,11 @@ async def get_problems(
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
 
-@app.get("/problems/{id}/", response_model=schemas.ProblemRead)
+@app.get("/problems/{id}", response_model=schemas.ProblemRead)
 async def get_problem(
     id: int, 
     db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
 ):
     key = f"problem:{id}"
@@ -184,11 +290,11 @@ async def get_problem(
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
 
-@app.delete("/problems/{id}/")
+@app.delete("/problems/{id}")
 async def delete_problem(
     id: int, 
     db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
 ):
     problem = await crud.get_problem(db, id)
@@ -231,3 +337,11 @@ async def create_service_record(
     record: schemas.ServiceRecordCreate = Body(...)
 ):
     return await crud.create_service_record(db, record)
+
+@app.patch("/problems/{id}/assign")
+async def asign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    return await crud.assign_admin(db, id, admin.id)
+
+@app.post("/problems/response", response_model=schemas.AdminResponseRead)
+async def admin_response(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), response: schemas.AdminResponseCreate = Body(...)):
+    return await crud.create_admin_response(db, response, admin.id)

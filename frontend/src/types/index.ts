@@ -5,6 +5,7 @@ export interface User {
   username: string
   email: string
   is_admin: boolean
+  is_verified: boolean
 }
 
 export interface AdminResponse {

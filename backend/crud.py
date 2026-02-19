@@ -67,6 +67,12 @@ async def update_user(db: AsyncSession, change: schemas.UserUpdate, user_id: int
 
     update_data = change.model_dump(exclude_unset=True)
 
+    email_changed = False
+
+    if "email" in update_data and update_data["email"] != user.email:
+        user.is_verified = False
+        email_changed = True
+
     if 'password' in update_data:
         update_data["password"] = hash_pass(update_data["password"])
 
@@ -76,7 +82,7 @@ async def update_user(db: AsyncSession, change: schemas.UserUpdate, user_id: int
     await db.commit()
     await db.refresh(user)
 
-    return user
+    return user, email_changed
 
 
 async def make_admin(db: AsyncSession, user_id: int):
@@ -85,10 +91,22 @@ async def make_admin(db: AsyncSession, user_id: int):
     if not user:
         await None
 
-    user.is_admin = not user.is_admin
+    user.is_admin = True
 
     await db.commit()
     await db.refresh(user)
+
+
+async def verify_user(db: AsyncSession, user_id:int):
+    user = await get_user_by_id(db, user_id)
+
+    if user:
+        user.is_verified = True
+        await db.commit()
+        await db.refresh(user)
+    
+    return user
+
 
 # ================= PROBLEMS =================
 

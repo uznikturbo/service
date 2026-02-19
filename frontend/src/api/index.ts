@@ -58,10 +58,10 @@ import type { User, Problem, Token, AdminResponse, ServiceRecord } from '../type
 
 export const authApi = {
   login: (email: string, password: string) =>
-    apiClient.post<Token>('/login/', { email, password }),
+    apiClient.post<Token>('/login', { email, password }),
 
   register: (username: string, email: string, password: string) =>
-    apiClient.post<User>('/register/', { username, email, password }),
+    apiClient.post<User>('/register', { username, email, password }),
 
   me: () => apiClient.get<User>('/users/me'),
 
@@ -71,17 +71,23 @@ export const authApi = {
   deleteMe: () => apiClient.delete<User>('/users/me'),
 
   makeAdmin: () => apiClient.post<User>('/users/makeadmin', {}),
+
+  verifyEmail: (code: string) =>
+    apiClient.post<{ message: string }>('/verify-email', { code }),
+
+  resendCode: () =>
+    apiClient.post<{ message: string }>('/resend-code', {}),
 }
 
 export const problemsApi = {
-  list: () => apiClient.get<Problem[]>('/problems/'),
+  list: () => apiClient.get<Problem[]>('/problems'),
 
-  get: (id: number) => apiClient.get<Problem>(`/problems/${id}/`),
+  get: (id: number) => apiClient.get<Problem>(`/problems/${id}`),
 
   create: (data: { title: string; description: string; image_url?: string }) =>
-    apiClient.post<Problem>('/problems/', data),
+    apiClient.post<Problem>('/problems', data),
 
-  delete: (id: number) => apiClient.delete<Problem>(`/problems/${id}/`),
+  delete: (id: number) => apiClient.delete<Problem>(`/problems/${id}`),
 
   assign: (id: number) => apiClient.patch<Problem>(`/problems/${id}/assign`, {}),
 
@@ -91,7 +97,7 @@ export const problemsApi = {
 
 export const adminApi = {
   respond: (problem_id: number, message: string) =>
-    apiClient.post<AdminResponse>('/problems/response/', { problem_id, message }),
+    apiClient.post<AdminResponse>('/problems/response', { problem_id, message }),
 
   createServiceRecord: (data: {
     problem_id: number
