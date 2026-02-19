@@ -5,6 +5,8 @@ interface SidebarProps {
   page: Page
   onNavigate: (page: Page) => void
   onLogout: () => void
+  isOpen?: boolean
+  onClose?: () => void
 }
 
 const navItems: { id: Page; icon: string; label: string }[] = [
@@ -12,15 +14,20 @@ const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'profile', icon: '◈', label: 'Профіль' },
 ]
 
-export function Sidebar({ user, page, onNavigate, onLogout }: SidebarProps) {
+export function Sidebar({ user, page, onNavigate, onLogout, isOpen, onClose }: SidebarProps) {
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${isOpen ? ' sidebar--open' : ''}`}>
       <div className="sidebar-logo">
         <div className="logo-mark">SD</div>
-        <div>
+        <div style={{ flex: 1 }}>
           <div className="logo-text">SERVICE DESK</div>
           <div className="logo-sub">Підтримка</div>
         </div>
+        <button
+          className="sidebar-close-btn"
+          onClick={onClose}
+          aria-label="Закрити меню"
+        >✕</button>
       </div>
 
       <div className="nav-section">
@@ -42,12 +49,19 @@ export function Sidebar({ user, page, onNavigate, onLogout }: SidebarProps) {
           <div className="user-avatar">
             {user.username?.[0]?.toUpperCase() || '?'}
           </div>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div className="user-name">{user.username}</div>
             <div className="user-role">
               {user.is_admin ? 'Адміністратор' : 'Користувач'}
             </div>
           </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ flexShrink: 0 }}
+            onClick={(e) => { e.stopPropagation(); onLogout() }}
+          >
+            Вийти
+          </button>
         </div>
       </div>
     </nav>

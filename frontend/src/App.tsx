@@ -13,6 +13,7 @@ function AppContent() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('problems')
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     if (apiClient.token) {
@@ -28,6 +29,7 @@ function AppContent() {
   const navigate = (p: Page) => {
     setPage(p)
     setSelectedProblem(null)
+    setSidebarOpen(false)
   }
 
   const logout = () => {
@@ -58,17 +60,30 @@ function AppContent() {
 
   return (
     <div className="app">
+      {sidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+      )}
+
       <Sidebar
         user={user}
         page={page}
         onNavigate={navigate}
         onLogout={logout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       <main className="main">
-        {/* Topbar */}
         <div className="topbar">
-          <div>
+          <button
+            className="hamburger-btn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Відкрити меню"
+          >
+            <span /><span /><span />
+          </button>
+
+          <div className="topbar-info">
             <div className="topbar-breadcrumb">
               Service Desk
               <span className="topbar-sep">/</span>
@@ -86,6 +101,7 @@ function AppContent() {
                 : page === 'problems' ? 'Мої заявки' : 'Профіль'}
             </div>
           </div>
+
           <div className="topbar-actions">
             {user.is_admin && (
               <span className="badge badge-admin" style={{ animation: 'glow 2s ease-in-out infinite' }}>
@@ -96,7 +112,6 @@ function AppContent() {
           </div>
         </div>
 
-        {/* Page content */}
         <div className="content">
           {page === 'problems' && !selectedProblem && (
             <ProblemsList user={user} onSelect={setSelectedProblem} />

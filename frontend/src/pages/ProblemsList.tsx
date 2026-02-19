@@ -53,7 +53,7 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
       <div className="stats-grid">
         <div className="stat-cell highlight">
           <div className="stat-value">{total}</div>
-          <div className="stat-label">Всього заявок</div>
+          <div className="stat-label">Всього</div>
         </div>
         <div className="stat-cell">
           <div className="stat-value" style={{ color: 'var(--accent)' }}>{pending}</div>
@@ -86,45 +86,79 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
             subtitle='Натисніть "+ Нова заявка" щоб подати першу заявку до служби підтримки'
           />
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#ID</th>
-                  <th>Назва</th>
-                  <th>Статус</th>
-                  {user.is_admin && <th>Користувач</th>}
-                  <th>Дата</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {problems.map(p => (
-                  <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
-                    <td className="td-mono" style={{ color: 'var(--accent)', opacity: 0.7 }}>
-                      #{String(p.id).padStart(4, '0')}
-                    </td>
-                    <td className="td-primary">{p.title}</td>
-                    <td><StatusBadge status={p.status} /></td>
-                    {user.is_admin && (
-                      <td className="td-mono" style={{ fontSize: 10 }}>uid:{p.user_id}</td>
-                    )}
-                    <td className="td-mono" style={{ fontSize: 10, color: 'var(--text3)' }}>
-                      {fmtDate(p.date_created)}
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={e => handleDelete(p.id, e)}
-                      >
-                        ✕
-                      </button>
-                    </td>
+          <>
+            {/* Desktop table */}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#ID</th>
+                    <th>Назва</th>
+                    <th>Статус</th>
+                    {user.is_admin && <th>Користувач</th>}
+                    <th>Дата</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {problems.map(p => (
+                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
+                      <td className="td-mono" style={{ color: 'var(--accent)', opacity: 0.7 }}>
+                        #{String(p.id).padStart(4, '0')}
+                      </td>
+                      <td className="td-primary">{p.title}</td>
+                      <td><StatusBadge status={p.status} /></td>
+                      {user.is_admin && (
+                        <td className="td-mono" style={{ fontSize: 10 }}>uid:{p.user_id}</td>
+                      )}
+                      <td className="td-mono" style={{ fontSize: 10, color: 'var(--text3)' }}>
+                        {fmtDate(p.date_created)}
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={e => handleDelete(p.id, e)}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="mobile-problem-list">
+              {problems.map(p => (
+                <div
+                  key={p.id}
+                  className="mobile-problem-card"
+                  onClick={() => onSelect(p)}
+                >
+                  <div className="mobile-problem-card-row">
+                    <span className="mobile-problem-title">{p.title}</span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div className="mobile-problem-card-row">
+                    <div className="mobile-problem-meta">
+                      <span style={{ color: 'var(--accent)', opacity: 0.7 }}>
+                        #{String(p.id).padStart(4, '0')}
+                      </span>
+                      {user.is_admin && <span>uid:{p.user_id}</span>}
+                      <span>{fmtDate(p.date_created)}</span>
+                    </div>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={e => handleDelete(p.id, e)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
