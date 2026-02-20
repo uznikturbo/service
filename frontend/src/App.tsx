@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiClient, authApi } from './api'
 import { ToastProvider } from './context/ToastContext'
+import { useToast } from './context/ToastContext'
 import { AuthScreen } from './components/AuthScreen'
 import { Sidebar } from './components/Sidebar'
 import { VerifyBanner } from './components/VerifyBanner'
@@ -50,6 +51,17 @@ function LandingPage({ onStart }: { onStart: () => void }) {
 // ============== ОСНОВНИЙ КОМПОНЕНТ APP ==============
 function AppContent() {
   const [user, setUser] = useState<User | null>(null)
+  const toast = useToast()
+
+  // Глобальний обробник 429 від apiClient
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail
+      toast(msg, 'error')
+    }
+    window.addEventListener('api:too-many-requests', handler)
+    return () => window.removeEventListener('api:too-many-requests', handler)
+  }, [toast])
   const [loading, setLoading] = useState(true)
   // Новий стан для відображення Landing Page
   const [showLanding, setShowLanding] = useState(true) 
@@ -163,7 +175,6 @@ function AppContent() {
                 ◆ ADMIN
               </span>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Вийти</button>
           </div>
         </div>
 

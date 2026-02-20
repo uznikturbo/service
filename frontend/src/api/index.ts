@@ -1,3 +1,16 @@
+// ============== КАСТОМНІ ПОМИЛКИ ==============
+
+export class TooManyRequestsError extends Error {
+  retryAfter?: number
+
+  constructor(retryAfter?: number) {
+    const seconds = retryAfter ?? 60
+    super(`Забагато запитів. Зачекайте ${seconds} сек. та спробуйте знову.`)
+    this.name = 'TooManyRequestsError'
+    this.retryAfter = retryAfter
+  }
+}
+
 // ============== API CLIENT ==============
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -67,6 +80,14 @@ export const apiClient = {
       } finally {
         this.isRefreshing = false
       }
+    }
+
+    // Обробка 429 Too Many Requests
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') ?? '', 10) || undefined
+      const err = new TooManyRequestsError(retryAfter)
+      window.dispatchEvent(new CustomEvent('api:too-many-requests', { detail: err.message }))
+      throw err
     }
 
     // Обробка помилок сервера (як і було)

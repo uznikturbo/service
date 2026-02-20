@@ -536,7 +536,12 @@ tr:hover td{background:rgba(255,255,255,0.02);color:var(--text);}
   /* Filter bar — horizontal scroll on mobile */
   .filter-bar{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;margin-bottom:12px;}
   .filter-bar::-webkit-scrollbar{display:none;}
+  /* Індикатор не анімується при скролі — прибираємо transition на мобільному */
+  .filter-bar-indicator{transition:none!important;}
   .filter-btn{padding:9px 6px;font-size:10px;}
+
+  /* Ховаємо ігрову панель на мобільному */
+  .game-panel-mobile-hidden{display:none!important;}
 
   /* Card header */
   .card-header{padding:12px 14px;}

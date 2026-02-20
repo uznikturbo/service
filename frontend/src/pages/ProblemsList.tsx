@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { problemsApi } from '../api'
 import { useToast } from '../context/ToastContext'
 import { StatusBadge, LoadingScreen, EmptyState, fmtDate } from '../components/ui'
@@ -33,37 +33,27 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
 
   const toast = useToast()
 
-  // Update indicator position whenever filter or layout changes
-  useEffect(() => {
-    const bar = barRef.current
+  // Update indicator position — використовуємо offsetLeft/offsetWidth,
+  // бо вони відносні до батьківського елемента і не залежать від scroll/viewport
+  const recalcIndicator = useCallback(() => {
     const btn = btnRefs.current.get(statusFilter)
-    if (!bar || !btn) return
-
-    const barRect = bar.getBoundingClientRect()
-    const btnRect = btn.getBoundingClientRect()
-
+    if (!btn) return
     setIndicatorStyle({
-      left: btnRect.left - barRect.left - 4, // 4 = bar padding
-      width: btnRect.width,
+      left: btn.offsetLeft,
+      width: btn.offsetWidth,
     })
   }, [statusFilter])
 
-  // Also recalc on window resize
+  useEffect(() => { recalcIndicator() }, [recalcIndicator])
+
+  // Перераховуємо при resize через ResizeObserver (надійніше ніж window resize)
   useEffect(() => {
-    const recalc = () => {
-      const bar = barRef.current
-      const btn = btnRefs.current.get(statusFilter)
-      if (!bar || !btn) return
-      const barRect = bar.getBoundingClientRect()
-      const btnRect = btn.getBoundingClientRect()
-      setIndicatorStyle({
-        left: btnRect.left - barRect.left - 4,
-        width: btnRect.width,
-      })
-    }
-    window.addEventListener('resize', recalc)
-    return () => window.removeEventListener('resize', recalc)
-  }, [statusFilter])
+    const bar = barRef.current
+    if (!bar) return
+    const ro = new ResizeObserver(() => recalcIndicator())
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [recalcIndicator])
 
   const sortedProblems = useMemo(() => {
     return [...problems].sort((a, b) => {
@@ -138,17 +128,10 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
         {/* Sliding highlight */}
         <span
           aria-hidden
+          className="filter-bar-indicator"
           style={{
-            position: 'absolute',
-            top: 4,
-            bottom: 4,
             left: indicatorStyle.left,
             width: indicatorStyle.width,
-            background: 'var(--accent)',
-            borderRadius: 2,
-            transition: 'left 0.35s cubic-bezier(0.34,1.56,0.64,1), width 0.35s cubic-bezier(0.34,1.56,0.64,1)',
-            zIndex: 0,
-            pointerEvents: 'none',
           }}
         />
 

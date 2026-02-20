@@ -1,9 +1,11 @@
 import json
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List
 
 import crud
+import redis.asyncio as ioredis
 import schemas
 from db import get_db
 from dotenv import load_dotenv
@@ -18,14 +20,17 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_limiter.depends import RateLimiter
 from fastapi_mail import FastMail, MessageSchema, MessageType
 from models import User
+from pyrate_limiter import Duration, Limiter, Rate
 from redis_config import get_redis
 from security import create_access_token, create_refresh_token
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import *
 
 load_dotenv()
+
 
 app = FastAPI(redirect_slashes=False)
 
@@ -37,9 +42,10 @@ app.add_middleware(
     allow_methods=["*"]
 )
 
+
 # ========== USER ENDPOINTS ==========
 
-@app.post("/register", response_model=schemas.UserRead)
+@app.post("/register", response_model=schemas.UserRead, dependencies=[Depends(RateLimiter(limiter=Limiter(Rate(5, Duration.HOUR))))])
 async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
     if await crud.get_user_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already exists")
@@ -62,7 +68,7 @@ async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, 
 
     return new_user
 
-@app.post("/login", response_model=schemas.Token)
+@app.post("/login", response_model=schemas.Token, dependencies=[Depends(RateLimiter(Limiter(Rate(3, Duration.MINUTE))))])
 async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
     db_user = await crud.authenticate_user(db, user.email, user.password)
     if not db_user:
@@ -72,7 +78,7 @@ async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
     refresh_token = create_refresh_token({"sub": str(db_user.id)})
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
-@app.post("/verify-email")
+@app.post("/verify-email", dependencies=[Depends(RateLimiter(Limiter(Rate(10, Duration.MINUTE * 10))))])
 async def verify_email(data: schemas.VerifyEmail, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
     if current_user.is_verified:
         return {"message": "Email already verified"}
@@ -91,7 +97,7 @@ async def verify_email(data: schemas.VerifyEmail, current_user: User = Depends(g
 
     return {"message": "Email successfully verified"}
 
-@app.post("/resend-code")
+@app.post("/resend-code", dependencies=[Depends(RateLimiter(Limiter(Rate(2, Duration.MINUTE * 2))))])
 async def resend_code(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), redis = Depends(get_redis)):
     code = await redis.get(f"verification:{current_user.id}")
 
@@ -136,7 +142,7 @@ async def delete_user(
     
     return await crud.delete_user(db, current_user.id)
 
-@app.patch("/users/me", response_model=schemas.UserRead)
+@app.patch("/users/me", response_model=schemas.UserRead, dependencies=[Depends(RateLimiter(Limiter(Rate(10, Duration.MINUTE * 10))))])
 async def update_profile(update_data: schemas.UserUpdate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), redis = Depends(get_redis)):
     updated_user, email_changed = await crud.update_user(db, update_data, current_user.id)
 
@@ -158,14 +164,14 @@ async def update_profile(update_data: schemas.UserUpdate, background_tasks: Back
         fm = FastMail(conf)
         background_tasks.add_task(fm.send_message, message)
 
-        return updated_user
+    return updated_user
 
 @app.post("/users/makeadmin")
 async def make_admin(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_verified_user)):
     return await crud.make_admin(db, current_user.id)
 
 
-@app.post("/users/telegram/generate-link")
+@app.post("/users/telegram/generate-link", dependencies=[Depends(RateLimiter(Limiter(Rate(5, Duration.HOUR))))])
 async def generate_tg_link(current_user: User = Depends(get_verified_user), redis = Depends(get_redis)):
     token = str(uuid.uuid4())[:8]
 
@@ -211,7 +217,7 @@ async def unlink_tg(background_tasks: BackgroundTasks, db: AsyncSession = Depend
 
     return updated_user
 
-@app.post("/auth/refresh")
+@app.post("/auth/refresh", dependencies=[Depends(RateLimiter(Limiter(Rate(30, Duration.MINUTE))))])
 async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = Depends(get_db)):
     try:
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -223,14 +229,14 @@ async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = D
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         
-        new_access_token = create_access_token(data={"sub": user.id})
+        new_access_token = create_access_token(data={"sub": str(user.id)})
         return {"access_token": new_access_token, "token_type": "bearer"}
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
 # =========== PROBLEM ENDPOINTS =============
 
-@app.post("/problems", response_model=schemas.ProblemRead)
+@app.post("/problems", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(3, Duration.MINUTE))))])
 async def create_problem(
     problem: schemas.ProblemCreate, 
     db: AsyncSession = Depends(get_db), 
@@ -385,8 +391,7 @@ async def create_service_record(
 
     if new_service_record.user.telegram_id:
         tg_text = f"✅ Ваша заявка №{new_service_record.problem_id} виконана!\nІнформація: {new_service_record.work_done}"
-
-    background_tasks.add_task(send_tg_message, new_service_record.user.telegram_id, tg_text)
+        background_tasks.add_task(send_tg_message, new_service_record.user.telegram_id, tg_text)
 
 
     await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
@@ -397,7 +402,7 @@ async def create_service_record(
 
 
 @app.patch("/problems/{id}/assign")
-async def asign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), redis = Depends(get_redis)):
+async def assign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), redis = Depends(get_redis)):
     new_assign = await crud.assign_admin(db, id, admin.id)
     if not new_assign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
