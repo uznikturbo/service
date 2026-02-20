@@ -9,28 +9,36 @@ interface ProblemDetailProps {
   problem: Problem
   user: User
   onBack: () => void
+  onUpdate?: (updated: Problem) => void
 }
 
-export function ProblemDetail({ problem: initialProblem, user, onBack }: ProblemDetailProps) {
+export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate }: ProblemDetailProps) {
   const [problem, setProblem] = useState<Problem>(initialProblem)
   const [loading, setLoading] = useState(false)
   const [showResponse, setShowResponse] = useState(false)
   const [showRecord, setShowRecord] = useState(false)
   const toast = useToast()
 
+  const handleUpdate = (data: Problem) => {
+    setProblem(data)
+    if (onUpdate) onUpdate(data)
+  }
+
   const refresh = async () => {
     try {
       const data = await problemsApi.get(problem.id)
-      setProblem(data)
+      handleUpdate(data)
     } catch {}
   }
 
   const assign = async () => {
     setLoading(true)
     try {
+      // Твій бекенд вже ставить статус "в роботі" в crud.assign_admin, 
+      // тому нам не треба робити додатковий запит. Просто беремо те, що повернув сервер.
       const data = await problemsApi.assign(problem.id)
-      setProblem(data)
-      toast('Заявку призначено вам', 'success')
+      handleUpdate(data)
+      toast('Заявку взято в роботу', 'success')
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {
@@ -42,8 +50,8 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
     setLoading(true)
     try {
       const data = await problemsApi.updateStatus(problem.id, status)
-      setProblem(data)
-      toast('Статус оновлено', 'success')
+      handleUpdate(data)
+      toast(`Статус змінено на "${status}"`, 'success')
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {
@@ -73,7 +81,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
       <div className="detail-grid">
         {/* Main content */}
         <div>
-          {/* Problem details card */}
           <div className="card" style={{ marginBottom: 12 }}>
             <div className="card-header">
               <div className="card-title">Деталі заявки</div>
@@ -81,49 +88,30 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
             <div className="card-body">
               <div className="detail-field">
                 <div className="detail-field-label">Тема</div>
-                <div
-                  className="detail-field-value"
-                  style={{ fontFamily: 'var(--font-head)', fontSize: 18, fontWeight: 700 }}
-                >
+                <div className="detail-field-value" style={{ fontFamily: 'var(--font-head)', fontSize: 18, fontWeight: 700 }}>
                   {problem.title}
                 </div>
               </div>
               <div className="detail-field">
                 <div className="detail-field-label">Опис</div>
-                <div
-                  className="detail-field-value"
-                  style={{ lineHeight: 1.6, fontSize: 13, color: 'var(--text2)' }}
-                >
+                <div className="detail-field-value" style={{ lineHeight: 1.6, fontSize: 13, color: 'var(--text2)' }}>
                   {problem.description}
                 </div>
               </div>
               {problem.image_url && (
                 <div className="detail-field">
                   <div className="detail-field-label">Зображення</div>
-                  <img
-                    src={problem.image_url}
-                    alt="attachment"
-                    style={{
-                      maxWidth: '100%',
-                      borderRadius: 'var(--radius)',
-                      border: '1px solid var(--border)',
-                      marginTop: 4,
-                    }}
-                  />
+                  <img src={problem.image_url} alt="attachment" style={{ maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)', marginTop: 4 }} />
                 </div>
               )}
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                 <div className="detail-field" style={{ margin: 0 }}>
                   <div className="detail-field-label">Дата подачі</div>
-                  <div className="detail-field-value td-mono" style={{ fontSize: 12 }}>
-                    {fmtDate(problem.date_created)}
-                  </div>
+                  <div className="detail-field-value td-mono" style={{ fontSize: 12 }}>{fmtDate(problem.date_created)}</div>
                 </div>
                 <div className="detail-field" style={{ margin: 0 }}>
                   <div className="detail-field-label">Автор</div>
-                  <div className="detail-field-value td-mono" style={{ fontSize: 12 }}>
-                    uid:{problem.user_id}
-                  </div>
+                  <div className="detail-field-value td-mono" style={{ fontSize: 12 }}>uid:{problem.user_id}</div>
                 </div>
               </div>
             </div>
@@ -155,26 +143,12 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
               <div className="panel-section-body">
                 <div className="detail-field">
                   <div className="detail-field-label">Виконані роботи</div>
-                  <div className="detail-field-value" style={{ fontSize: 13 }}>
-                    {problem.service_record.work_done}
-                  </div>
+                  <div className="detail-field-value" style={{ fontSize: 13 }}>{problem.service_record.work_done}</div>
                 </div>
                 <div className="detail-field">
                   <div className="detail-field-label">Гарантія</div>
-                  <div className="detail-field-value" style={{ fontSize: 13 }}>
-                    {problem.service_record.warranty_info}
-                  </div>
+                  <div className="detail-field-value" style={{ fontSize: 13 }}>{problem.service_record.warranty_info}</div>
                 </div>
-                {(problem.service_record.used_parts?.length ?? 0) > 0 && (
-                  <div className="detail-field">
-                    <div className="detail-field-label">Використані запчастини</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                      {problem.service_record.used_parts!.map((p, i) => (
-                        <span key={i} className="tag">◆ {p}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 <div style={{ fontSize: 10, color: 'var(--text3)' }}>
                   Завершено: {fmtDate(problem.service_record.date_completed)}
                 </div>
@@ -183,47 +157,40 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
           )}
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar Actions */}
         <div>
-          {/* Admin actions */}
           {user.is_admin && (
             <div className="card" style={{ marginBottom: 12 }}>
               <div className="card-header">
                 <div className="card-title">Дії адміна</div>
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                
                 {!problem.admin_id && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                    onClick={assign}
-                    disabled={loading}
-                  >
-                    ◆ Взяти заявку
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={assign} disabled={loading}>
+                    ◆ Прийняти заявку
                   </button>
                 )}
-                {!problem.response && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                    onClick={() => setShowResponse(true)}
-                  >
-                    ✎ Відповісти
+
+                {problem.admin_id === user.id && !problem.response && (
+                  <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setShowResponse(true)}>
+                    ✎ Надати відповідь
                   </button>
                 )}
-                {!isClosed && (
+
+                {!isClosed && problem.admin_id === user.id && (
                   <>
                     <button
                       className="btn btn-ghost"
-                      style={{ width: '100%', justifyContent: 'center', color: 'var(--green)' }}
+                      style={{ width: '100%', color: 'var(--green)' }}
                       onClick={() => changeStatus('виконано')}
                       disabled={loading}
                     >
-                      ✓ Позначити виконаним
+                      ✓ Виконано
                     </button>
                     <button
                       className="btn btn-danger"
-                      style={{ width: '100%', justifyContent: 'center' }}
+                      style={{ width: '100%' }}
                       onClick={() => changeStatus('відмовлено')}
                       disabled={loading}
                     >
@@ -231,32 +198,28 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
                     </button>
                   </>
                 )}
-                {!problem.service_record && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                    onClick={() => setShowRecord(true)}
-                  >
-                    ◫ Додати сервісний запис
+                
+                {problem.admin_id === user.id && !problem.service_record && (
+                  <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setShowRecord(true)}>
+                    ◫ Сервісний запис
                   </button>
                 )}
               </div>
             </div>
           )}
 
-          {/* Metadata */}
+          {/* Metadata Sidebar Section */}
           <div className="panel-section">
-            <div className="panel-section-title">Метадані</div>
+            <div className="panel-section-title">Інформація</div>
             <div className="panel-section-body">
               {[
-                ['ID заявки', `#${String(problem.id).padStart(4, '0')}`],
-                ['ID користувача', `uid:${problem.user_id}`],
-                ['ID адміна', problem.admin_id ? `uid:${problem.admin_id}` : '—'],
-                ['Статус', problem.status],
-              ].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 11 }}>
+                ['Статус', <StatusBadge status={problem.status} />],
+                ['Виконавець', problem.admin_id ? `ID:${problem.admin_id}` : 'Не призначено'],
+                ['Створено', fmtDate(problem.date_created)],
+              ].map(([k, v], i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 11 }}>
                   <span style={{ color: 'var(--text3)' }}>{k}</span>
-                  <span style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>{v}</span>
+                  <span style={{ color: 'var(--text2)' }}>{v}</span>
                 </div>
               ))}
             </div>
@@ -268,7 +231,7 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
         <AdminResponseModal
           problemId={problem.id}
           onClose={() => setShowResponse(false)}
-          onDone={() => { setShowResponse(false); refresh() }}
+          onDone={() => { setShowResponse(false); refresh() }} 
         />
       )}
       {showRecord && (

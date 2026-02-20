@@ -8,6 +8,7 @@ import { ProblemsList } from './pages/ProblemsList'
 import { ProblemDetail } from './pages/ProblemDetail'
 import { ProfilePage } from './pages/ProfilePage'
 import type { User, Problem, Page } from './types'
+import { AdminMyProblems } from './pages/AdminMyProblemsList'
 
 // ============== ГОЛОВНА СТОРІНКА (LANDING) ==============
 function LandingPage({ onStart }: { onStart: () => void }) {
@@ -56,6 +57,7 @@ function AppContent() {
   const [page, setPage] = useState<Page>('problems')
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [problems, setProblems] = useState<Problem[]>([])
 
   useEffect(() => {
     if (apiClient.token) {
@@ -64,7 +66,7 @@ function AppContent() {
           setUser(u)
           setShowLanding(false) // Якщо токен є і він валідний, ховаємо Landing
         })
-        .catch(() => apiClient.clearToken())
+        .catch(() => apiClient.clearTokens())
         .finally(() => setLoading(false))
     } else {
       setLoading(false)
@@ -78,7 +80,7 @@ function AppContent() {
   }
 
   const logout = () => {
-    apiClient.clearToken()
+    apiClient.clearTokens()
     setUser(null)
     setShowLanding(true) // Після виходу повертаємо на головну
   }
@@ -175,10 +177,16 @@ function AppContent() {
               problem={selectedProblem}
               user={user}
               onBack={() => setSelectedProblem(null)}
+              onUpdate={(updated) => {
+                setProblems(prev => prev.map(p => p.id === updated.id ? updated : p))
+              }}
             />
           )}
           {page === 'profile' && (
             <ProfilePage user={user} onUpdate={setUser} onLogout={logout} />
+          )}
+          {page === 'my-tasks' && !selectedProblem && (
+            <AdminMyProblems user={user} onSelect={setSelectedProblem} />
           )}
         </div>
       </main>

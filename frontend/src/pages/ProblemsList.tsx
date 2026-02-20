@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { problemsApi } from '../api'
 import { useToast } from '../context/ToastContext'
 import { StatusBadge, LoadingScreen, EmptyState, fmtDate } from '../components/ui'
@@ -10,11 +10,86 @@ interface ProblemsListProps {
   onSelect: (problem: Problem) => void
 }
 
+type FilterType = 'all' | 'pending' | 'inWork' | 'done' | 'rejected'
+
+const FILTERS: { key: FilterType; label: string }[] = [
+  { key: 'all',      label: 'Всі'       },
+  { key: 'pending',  label: 'Нові'      },
+  { key: 'inWork',   label: 'В роботі'  },
+  { key: 'done',     label: 'Виконано'  },
+  { key: 'rejected', label: 'Відмовлено'},
+]
+
 export function ProblemsList({ user, onSelect }: ProblemsListProps) {
   const [problems, setProblems] = useState<Problem[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<FilterType>('all')
+
+  // refs for sliding indicator
+  const barRef = useRef<HTMLDivElement>(null)
+  const btnRefs = useRef<Map<FilterType, HTMLButtonElement>>(new Map())
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
+
   const toast = useToast()
+
+  // Update indicator position whenever filter or layout changes
+  useEffect(() => {
+    const bar = barRef.current
+    const btn = btnRefs.current.get(statusFilter)
+    if (!bar || !btn) return
+
+    const barRect = bar.getBoundingClientRect()
+    const btnRect = btn.getBoundingClientRect()
+
+    setIndicatorStyle({
+      left: btnRect.left - barRect.left - 4, // 4 = bar padding
+      width: btnRect.width,
+    })
+  }, [statusFilter])
+
+  // Also recalc on window resize
+  useEffect(() => {
+    const recalc = () => {
+      const bar = barRef.current
+      const btn = btnRefs.current.get(statusFilter)
+      if (!bar || !btn) return
+      const barRect = bar.getBoundingClientRect()
+      const btnRect = btn.getBoundingClientRect()
+      setIndicatorStyle({
+        left: btnRect.left - barRect.left - 4,
+        width: btnRect.width,
+      })
+    }
+    window.addEventListener('resize', recalc)
+    return () => window.removeEventListener('resize', recalc)
+  }, [statusFilter])
+
+  const sortedProblems = useMemo(() => {
+    return [...problems].sort((a, b) => {
+      const getPriority = (status: string) => {
+        const s = status.trim().toLowerCase()
+        if (s === 'в обробці' || s === 'новий') return 0
+        if (s === 'в роботі') return 1
+        return 2
+      }
+      const diff = getPriority(a.status) - getPriority(b.status)
+      if (diff !== 0) return diff
+      return new Date(b.date_created).getTime() - new Date(a.date_created).getTime()
+    })
+  }, [problems])
+
+  const displayedProblems = useMemo(() => {
+    if (statusFilter === 'all') return sortedProblems
+    return sortedProblems.filter(p => {
+      const s = p.status.trim().toLowerCase()
+      if (statusFilter === 'pending')  return s === 'в обробці' || s === 'новий'
+      if (statusFilter === 'inWork')   return s === 'в роботі'
+      if (statusFilter === 'done')     return s === 'виконано'
+      if (statusFilter === 'rejected') return s === 'відмовлено'
+      return true
+    })
+  }, [sortedProblems, statusFilter])
 
   const load = async () => {
     setLoading(true)
@@ -42,37 +117,66 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     }
   }
 
-  const total = problems.length
-  const done = problems.filter(p => p.status === 'виконано').length
-  const rejected = problems.filter(p => p.status === 'відмовлено').length
-  const pending = total - done - rejected
+  // Counts (always from full list)
+  const counts: Record<FilterType, number> = useMemo(() => ({
+    all:      problems.length,
+    pending:  problems.filter(p => { const s = p.status.trim().toLowerCase(); return s === 'в обробці' || s === 'новий' }).length,
+    inWork:   problems.filter(p => p.status.trim().toLowerCase() === 'в роботі').length,
+    done:     problems.filter(p => p.status.trim().toLowerCase() === 'виконано').length,
+    rejected: problems.filter(p => p.status.trim().toLowerCase() === 'відмовлено').length,
+  }), [problems])
 
   return (
     <div className="animate-fadeUp">
-      {/* Stats */}
-      <div className="stats-grid">
-        <div className="stat-cell highlight">
-          <div className="stat-value">{total}</div>
-          <div className="stat-label">Всього</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-value" style={{ color: 'var(--accent)' }}>{pending}</div>
-          <div className="stat-label">В обробці</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-value" style={{ color: 'var(--green)' }}>{done}</div>
-          <div className="stat-label">Виконано</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-value" style={{ color: 'var(--red)' }}>{rejected}</div>
-          <div className="stat-label">Відмовлено</div>
-        </div>
+
+      {/* ── Animated filter bar ── */}
+      <div
+        className="filter-bar"
+        ref={barRef}
+        style={{ position: 'relative' }}
+      >
+        {/* Sliding highlight */}
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 4,
+            bottom: 4,
+            left: indicatorStyle.left,
+            width: indicatorStyle.width,
+            background: 'var(--accent)',
+            borderRadius: 2,
+            transition: 'left 0.35s cubic-bezier(0.34,1.56,0.64,1), width 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            data-filter={key}
+            className={`filter-btn${statusFilter === key ? ' active' : ''}`}
+            ref={el => { if (el) btnRefs.current.set(key, el) }}
+            onClick={() => setStatusFilter(key)}
+          >
+            {key !== 'all' && <span className="filter-dot" />}
+            {label}
+            <span className="filter-btn-count">{counts[key]}</span>
+          </button>
+        ))}
       </div>
 
-      {/* Table */}
+      {/* ── Table card ── */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Заявки</div>
+          <div className="card-title">
+            Заявки{statusFilter !== 'all' && (
+              <span style={{ fontSize: 11, opacity: 0.45, fontWeight: 400, marginLeft: 6 }}>
+                / {FILTERS.find(f => f.key === statusFilter)?.label}
+              </span>
+            )}
+          </div>
           <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
             + Нова заявка
           </button>
@@ -80,10 +184,14 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
 
         {loading ? (
           <LoadingScreen />
-        ) : problems.length === 0 ? (
+        ) : displayedProblems.length === 0 ? (
           <EmptyState
             title="Заявок немає"
-            subtitle='Натисніть "+ Нова заявка" щоб подати першу заявку до служби підтримки'
+            subtitle={
+              statusFilter !== 'all'
+                ? 'Немає заявок з таким статусом'
+                : 'Натисніть "+ Нова заявка" щоб подати першу заявку до служби підтримки'
+            }
           />
         ) : (
           <>
@@ -101,7 +209,7 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {problems.map(p => (
+                  {displayedProblems.map(p => (
                     <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
                       <td className="td-mono" style={{ color: 'var(--accent)', opacity: 0.7 }}>
                         #{String(p.id).padStart(4, '0')}
@@ -130,7 +238,7 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
 
             {/* Mobile cards */}
             <div className="mobile-problem-list">
-              {problems.map(p => (
+              {displayedProblems.map(p => (
                 <div
                   key={p.id}
                   className="mobile-problem-card"

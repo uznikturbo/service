@@ -14,20 +14,32 @@ export function Spinner({ size = 20 }: { size?: number }) {
 
 // ============== STATUS BADGE ==============
 export function StatusBadge({ status }: { status: string }) {
+  const normalizedStatus = status.trim().toLowerCase()
+
   const map: Record<string, string> = {
     'виконано': 'done',
     'відмовлено': 'rejected',
-    'pending': 'pending',
-    'в очікуванні': 'pending',
+    'в обробці': 'pending',
+    'в роботі': 'in-work'
   }
   const cls = map[status] || 'pending'
   const labels: Record<string, string> = {
     'виконано': '✓ Виконано',
     'відмовлено': '✕ Відмовлено',
-    'pending': '◌ В очікуванні',
-    'в очікуванні': '◌ В очікуванні',
+    'в обробці': '◌ В обробці',
+    'в роботі': '⟳ В роботі'
+
   }
-  return <span className={`badge badge-${cls}`}>{labels[status] || status}</span>
+  const inWorkStyles = normalizedStatus === "в роботі"
+    ? { color: 'var(--yellow)', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderColor: 'rgba(234, 179, 8, 0.2)' }
+    : {}
+
+  return (
+    <span className={`badge badge-${cls}`} style={inWorkStyles}>
+      {labels[normalizedStatus] || status}
+    </span>
+  )
+
 }
 
 // ============== MODAL ==============

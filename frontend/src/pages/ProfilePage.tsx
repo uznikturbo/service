@@ -117,7 +117,7 @@ export function ProfilePage({ user, onUpdate, onLogout }: ProfilePageProps) {
     if (!confirm('Видалити акаунт? Цю дію неможливо скасувати.')) return
     try {
       await authApi.deleteMe()
-      apiClient.clearToken()
+      apiClient.clearTokens()
       onLogout()
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
@@ -125,7 +125,7 @@ export function ProfilePage({ user, onUpdate, onLogout }: ProfilePageProps) {
   }
 
   const logout = () => {
-    apiClient.clearToken()
+    apiClient.clearTokens()
     onLogout()
   }
 

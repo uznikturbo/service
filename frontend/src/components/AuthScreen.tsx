@@ -23,8 +23,8 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
     setLoading(true)
     try {
       if (tab === 'login') {
-        const { access_token } = await authApi.login(form.email, form.password)
-        apiClient.setToken(access_token)
+        const { access_token, refresh_token } = await authApi.login(form.email, form.password)
+        apiClient.setTokens(access_token, refresh_token)
         const user = await authApi.me()
         onLogin(user)
         toast('Вітаємо! Успішний вхід', 'success')

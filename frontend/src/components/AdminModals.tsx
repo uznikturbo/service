@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { adminApi } from '../api'
+import { adminApi, problemsApi } from '../api'
 import { useToast } from '../context/ToastContext'
 import { Modal, Spinner } from './ui'
+import { Problem } from '../types' // Виправив шлях імпорту на відносний, як у решті твоїх файлів
 
 // ============== ADMIN RESPONSE MODAL ==============
 interface AdminResponseModalProps {
   problemId: number
   onClose: () => void
-  onDone: () => void
+  onDone: (data: Problem) => void // Очікує дані типу Problem
 }
 
 export function AdminResponseModal({ problemId, onClose, onDone }: AdminResponseModalProps) {
@@ -19,9 +20,11 @@ export function AdminResponseModal({ problemId, onClose, onDone }: AdminResponse
     if (!msg.trim()) return
     setLoading(true)
     try {
+      // Зберігаємо результат запиту в змінну data
       await adminApi.respond(problemId, msg)
+      const data = await problemsApi.get(problemId)
       toast('Відповідь надіслана', 'success')
-      onDone()
+      onDone(data) // Передаємо оновлену заявку в батьківський компонент
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {
@@ -62,7 +65,7 @@ interface ServiceRecordModalProps {
   problemId: number
   userId: number
   onClose: () => void
-  onDone: () => void
+  onDone: (data: Problem) => void // Очікує дані типу Problem
 }
 
 export function ServiceRecordModal({ userId, problemId, onClose, onDone }: ServiceRecordModalProps) {
@@ -80,6 +83,8 @@ export function ServiceRecordModal({ userId, problemId, onClose, onDone }: Servi
       const parts = form.used_parts
         ? form.used_parts.split(',').map(s => s.trim()).filter(Boolean)
         : undefined
+      
+      // Зберігаємо результат створення запису (бекенд має повернути оновлену Problem)
       await adminApi.createServiceRecord({
         problem_id: problemId,
         user_id: userId,
@@ -87,8 +92,10 @@ export function ServiceRecordModal({ userId, problemId, onClose, onDone }: Servi
         warranty_info: form.warranty_info,
         used_parts: parts,
       })
+      
+      const data = await problemsApi.get(problemId)
       toast('Сервісний запис додано', 'success')
-      onDone()
+      onDone(data) // Передаємо оновлену заявку далі
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {

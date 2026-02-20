@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_mail import FastMail, MessageSchema, MessageType
 from models import User
 from redis_config import get_redis
-from security import create_access_token
+from security import create_access_token, create_refresh_token
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import *
 
@@ -62,6 +62,15 @@ async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, 
 
     return new_user
 
+@app.post("/login", response_model=schemas.Token)
+async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
+    db_user = await crud.authenticate_user(db, user.email, user.password)
+    if not db_user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    access_token = create_access_token({"sub": str(db_user.id)})
+    refresh_token = create_refresh_token({"sub": str(db_user.id)})
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
 @app.post("/verify-email")
 async def verify_email(data: schemas.VerifyEmail, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
@@ -103,14 +112,6 @@ async def resend_code(background_tasks: BackgroundTasks, current_user: User = De
 
 
 
-@app.post("/login", response_model=schemas.Token)
-async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
-    db_user = await crud.authenticate_user(db, user.email, user.password)
-    if not db_user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    access_token = create_access_token({"sub": str(db_user.id)})
-    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me", response_model=schemas.UserRead)
 async def profile(current_user: User = Depends(get_current_user)):
@@ -209,6 +210,23 @@ async def unlink_tg(background_tasks: BackgroundTasks, db: AsyncSession = Depend
         background_tasks.add_task(send_tg_message, old_tg_id, "✅ Аккаунт успішно відв'язано!")
 
     return updated_user
+
+@app.post("/auth/refresh")
+async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = Depends(get_db)):
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+        
+        user_id = payload.get("sub")
+        user = await crud.get_user_by_id(db, user_id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        
+        new_access_token = create_access_token(data={"sub": user.id})
+        return {"access_token": new_access_token, "token_type": "bearer"}
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
 # =========== PROBLEM ENDPOINTS =============
 
@@ -379,8 +397,16 @@ async def create_service_record(
 
 
 @app.patch("/problems/{id}/assign")
-async def asign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
-    return await crud.assign_admin(db, id, admin.id)
+async def asign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), redis = Depends(get_redis)):
+    new_assign = await crud.assign_admin(db, id, admin.id)
+    if not new_assign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+
+    await redis.delete(problems_list_key(new_assign.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    await redis.delete(f"problem:{id}")
+
+    return new_assign
 
 @app.post("/problems/response", response_model=schemas.AdminResponseRead)
 async def admin_response(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), response: schemas.AdminResponseCreate = Body(...)):

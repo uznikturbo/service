@@ -25,6 +25,7 @@ services:
     volumes:
       - ./backend:/app
     container_name: fastapi_backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     depends_on:
@@ -58,6 +59,16 @@ services:
    ports:
     - "6379:6379"
    restart: always
+
+  bot:
+    build: ./backend
+    container_name: bot_sd
+    command: python3 bot.py
+    env_file: ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
 
 volumes:
   postgres_data:

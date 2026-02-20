@@ -184,7 +184,7 @@ async def assign_admin(db: AsyncSession, problem_id: int, admin_id: int):
     stmt = (
         update(models.Problem)
         .where(models.Problem.id == problem_id)
-        .values(admin_id=admin_id, status="В роботі")
+        .values(admin_id=admin_id, status="в роботі")
     )
     await db.execute(stmt)
     await db.commit()

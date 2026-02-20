@@ -52,4 +52,4 @@ export interface Toast {
   type: ToastType
 }
 
-export type Page = 'problems' | 'profile'
+export type Page = 'problems' | 'profile' | 'my-tasks'
