@@ -1,6 +1,7 @@
 from db import Base
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -39,6 +40,7 @@ class User(Base):
     email = Column(String(100), unique=True, index=True)
     is_admin = Column(Boolean, default=False)
     is_verified = Column(Boolean, default=False)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
 
     problems = relationship("Problem", foreign_keys=[Problem.user_id],back_populates="user")
     assigned_problems = relationship("Problem", foreign_keys=[Problem.admin_id], back_populates="admin")

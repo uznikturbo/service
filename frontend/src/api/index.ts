@@ -63,7 +63,7 @@ export const authApi = {
   register: (username: string, email: string, password: string) =>
     apiClient.post<User>('/register', { username, email, password }),
 
-  me: () => apiClient.get<User>('/users/me'),
+  me: () => apiClient.get<User>(`/users/me?t=${Date.now()}`),
 
   updateMe: (data: Partial<{ username: string; email: string; password: string }>) =>
     apiClient.patch<User>('/users/me', data),
@@ -77,6 +77,11 @@ export const authApi = {
 
   resendCode: () =>
     apiClient.post<{ message: string }>('/resend-code', {}),
+
+  generateTgLink: () => 
+    apiClient.post<{ link: string }>('/users/telegram/generate-link', {}),
+
+  unlinkTg: () => apiClient.patch<User>('/users/telegram/unlink', {}),
 }
 
 export const problemsApi = {

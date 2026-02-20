@@ -108,12 +108,33 @@ async def verify_user(db: AsyncSession, user_id:int):
     return user
 
 
+async def get_user_by_telegram_id(db: AsyncSession, telegram_id: int):
+    result = await db.execute(
+        select(models.User).where(models.User.telegram_id == telegram_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def unlink_user_tg(db: AsyncSession, user_id: int):
+    user = await get_user_by_id(db, user_id)
+
+    if user:
+        user.telegram_id = None
+        await db.commit()
+        await db.refresh(user)
+
+    return user
+
+
+
+
 # ================= PROBLEMS =================
 
 def _problem_query_options():
     return [
         selectinload(models.Problem.response),
-        selectinload(models.Problem.service_record)
+        selectinload(models.Problem.service_record),
+        selectinload(models.Problem.user)
     ]
 
 async def create_problem(db: AsyncSession, problem: schemas.ProblemCreate, user_id: int):

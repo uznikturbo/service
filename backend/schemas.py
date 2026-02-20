@@ -19,6 +19,7 @@ class UserRead(UserBase):
     id: int
     is_admin: bool
     is_verified: bool
+    telegram_id: Optional[int] = None
     model_config={"from_attributes": True}
 
 
@@ -107,10 +108,6 @@ class ProblemUpdateStatus(BaseModel):
     status: Literal["виконано", "відмовлено"]
 
 
-
-
-
-
 # ========= JWT TOKEN SCHEMAS ==========
 
 class Token(BaseModel):
@@ -119,3 +116,10 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     sub: str | None = None
+
+
+# ========== TELEGRAM SCHEMAS ============
+
+class TgLinkData(BaseModel):
+        token: str
+        telegram_id: int

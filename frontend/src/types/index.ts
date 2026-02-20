@@ -6,6 +6,7 @@ export interface User {
   email: string
   is_admin: boolean
   is_verified: boolean
+  telegram_id: number | null
 }
 
 export interface AdminResponse {

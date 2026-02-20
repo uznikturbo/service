@@ -1,7 +1,5 @@
 import json
-import os
-import random
-import string
+import uuid
 from datetime import datetime, timezone
 from typing import List
 
@@ -20,13 +18,12 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
-from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
-from jose import JWTError, jwt
+from fastapi_mail import FastMail, MessageSchema, MessageType
 from models import User
 from redis_config import get_redis
-from security import ALGORITHM, SECRET_KEY, create_access_token
+from security import create_access_token
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils import *
 
 load_dotenv()
 
@@ -39,76 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
     allow_methods=["*"]
 )
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-
-def problems_list_key(user_id: int, is_admin: bool) -> str:
-    if is_admin:
-        return "admin:problems_list"
-    return f"user:{user_id}:problems_list"
-
-
-async def get_current_user(
-    request: Request, 
-    token: str = Depends(oauth2_scheme), 
-    db: AsyncSession = Depends(get_db), 
-    redis = Depends(get_redis)
-):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED, 
-        detail="Could not validate credentials"
-    )
-
-    is_blacklisted = await redis.get(f"blacklist:{token}")
-    if is_blacklisted:
-        raise credentials_exception
-
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    
-    user = await crud.get_user_by_id(db, int(user_id))
-    if user is None:
-        raise credentials_exception
-    
-    request.state.token = token
-    request.state.exp = payload.get("exp")
-    
-    return user
-
-
-async def get_verified_user(user: User = Depends(get_current_user)):
-    if not user.is_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your email not verified")
-    
-    return user
-
-
-async def get_current_admin(user: User = Depends(get_verified_user)):
-    if not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
-    return user
-
-
-conf = ConnectionConfig(
-    MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM = os.getenv("MAIL_FROM"),
-    MAIL_PORT = 587,
-    MAIL_SERVER = "smtp.gmail.com",
-    MAIL_STARTTLS = True,
-    MAIL_SSL_TLS = False,
-    USE_CREDENTIALS = True,
-    VALIDATE_CERTS = True
-)
-
-def generate_code():
-    return "".join(random.choices(string.digits, k=6))
 
 # ========== USER ENDPOINTS ==========
 
@@ -236,6 +163,53 @@ async def update_profile(update_data: schemas.UserUpdate, background_tasks: Back
 async def make_admin(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_verified_user)):
     return await crud.make_admin(db, current_user.id)
 
+
+@app.post("/users/telegram/generate-link")
+async def generate_tg_link(current_user: User = Depends(get_verified_user), redis = Depends(get_redis)):
+    token = str(uuid.uuid4())[:8]
+
+    await redis.set(f"tg_link:{token}", current_user.id, ex=600)
+
+    return {"link": f"https://t.me/deskservice3_bot?start={token}"}
+
+
+@app.post("/users/telegram/confirm")
+async def confirm_tg_link(data: schemas.TgLinkData, db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
+        existing_tg_user = await crud.get_user_by_telegram_id(db, data.telegram_id)
+        if existing_tg_user:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Цей Telegram вже прив'язаний!!")
+
+        user_id_bytes = await redis.get(f"tg_link:{data.token}")
+        if not user_id_bytes:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Посилання застаріло або не існує")
+        
+        user_id = int(user_id_bytes)
+
+        user = await crud.get_user_by_id(db, user_id)
+        user.telegram_id = data.telegram_id
+        await db.commit()
+
+        await redis.delete(f"tg_link:{data.token}")
+
+        return {"status": "success", "username": user.username}
+
+@app.get("/users/telegram/check/{telegram_id}")
+async def check_tg_link(telegram_id: int, db: AsyncSession = Depends(get_db)):
+    user = await crud.get_user_by_telegram_id(db, telegram_id)
+    if user:
+        return {"linked": True, 'username': user.username}
+    return {"linked": False}
+
+@app.patch("/users/telegram/unlink")
+async def unlink_tg(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_verified_user)):
+    old_tg_id = current_user.telegram_id
+
+    updated_user = await crud.unlink_user_tg(db, current_user.id)
+    if old_tg_id:
+        background_tasks.add_task(send_tg_message, old_tg_id, "✅ Аккаунт успішно відв'язано!")
+
+    return updated_user
+
 # =========== PROBLEM ENDPOINTS =============
 
 @app.post("/problems", response_model=schemas.ProblemRead)
@@ -322,6 +296,7 @@ async def delete_problem(
 @app.patch("/problems/{id}/status", response_model=schemas.ProblemRead)
 async def change_problem_status(
     id: int, 
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db), 
     admin: User = Depends(get_current_admin),
     status_update: schemas.ProblemUpdateStatus = Body(...), 
@@ -330,6 +305,31 @@ async def change_problem_status(
     updated = await crud.update_problem_status(db, id, status_update)
     if not updated:
         raise HTTPException(status_code=404, detail="Problem not found")
+
+    if updated.status == "виконано":
+        message = MessageSchema(
+        subject=f"Заявка №{updated.id} виконана!",
+        recipients=[updated.user.email],
+        body=f"Привіт, {updated.user.username}!\n\nВаша заявка №{updated.id} змінила статус на 'виконано'.",
+        subtype=MessageType.plain
+        )
+        tg_message = f"✅ Ваша заявка №{updated.id} виконана!"
+    else:
+        message = MessageSchema(
+        subject=f"Заявка №{updated.id} відмовлена🙁",
+        recipients=[updated.user.email],
+        body=f"Привіт, {updated.user.username}!\n\nВаша заявка №{updated.id} змінила статус на 'відмовлено'.",
+        subtype=MessageType.plain
+        )
+
+        tg_message = f"❌ Ваша заявка №{updated.id} відмовлена🙁"
+
+    fm = FastMail(conf)
+
+    background_tasks.add_task(fm.send_message, message)
+
+    if updated.user.telegram_id:
+        background_tasks.add_task(send_tg_message, updated.user.telegram_id, tg_message)
 
     await redis.delete(f"problem:{id}")
     await redis.delete(problems_list_key(updated.user_id, False))
@@ -364,6 +364,12 @@ async def create_service_record(
 
     fm = FastMail(conf)
     background_tasks.add_task(fm.send_message, message)
+
+    if new_service_record.user.telegram_id:
+        tg_text = f"✅ Ваша заявка №{new_service_record.problem_id} виконана!\nІнформація: {new_service_record.work_done}"
+
+    background_tasks.add_task(send_tg_message, new_service_record.user.telegram_id, tg_text)
+
 
     await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
     await redis.delete(problems_list_key(0, True))

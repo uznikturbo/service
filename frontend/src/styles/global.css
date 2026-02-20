@@ -221,6 +221,7 @@ tr:hover td{background:rgba(255,255,255,0.02);color:var(--text);}
   border-radius:var(--radius);padding:10px 12px;
   color:var(--text);font-family:var(--font-mono);font-size:12px;
   outline:none;transition:border-color 0.15s,box-shadow 0.15s;
+  appearance: none;
   -webkit-appearance:none;
 }
 .form-input:focus,.form-textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,158,11,0.1);}
