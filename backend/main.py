@@ -9,8 +9,15 @@ import crud
 import schemas
 from db import get_db
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
-from fastapi.background import BackgroundTasks
+from fastapi import (
+    BackgroundTasks,
+    Body,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    status,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -332,11 +339,38 @@ async def change_problem_status(
 
 @app.post("/service-record", response_model=schemas.ServiceRecordRead)
 async def create_service_record(
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db), 
     admin: User = Depends(get_current_admin), 
-    record: schemas.ServiceRecordCreate = Body(...)
+    record: schemas.ServiceRecordCreate = Body(...),
+    redis = Depends(get_redis)
 ):
-    return await crud.create_service_record(db, record)
+    new_service_record = await crud.create_service_record(db, record)
+
+    if new_service_record.used_parts:
+        message = MessageSchema(
+        subject=f"Заявка №{new_service_record.problem_id} виконана!",
+        recipients=[new_service_record.user.email],
+        body=f"Привіт, {new_service_record.user.username}!\n\nВаша заявка №{new_service_record.problem_id} виконана.\nІнформація: {new_service_record.work_done}\nВикористані деталі:{', '.join(new_service_record.used_parts)}",
+        subtype=MessageType.plain
+        )
+    else:
+        message = MessageSchema(
+        subject=f"Заявка №{new_service_record.problem_id} виконана!",
+        recipients=[new_service_record.user.email],
+        body=f"Привіт, {new_service_record.user.username}!\n\nВаша заявка №{new_service_record.problem_id} виконана.\nІнформація: {new_service_record.work_done}",
+        subtype=MessageType.plain
+        )
+
+    fm = FastMail(conf)
+    background_tasks.add_task(fm.send_message, message)
+
+    await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    await redis.delete(f"problem:{new_service_record.problem_id}")
+
+    return new_service_record
+
 
 @app.patch("/problems/{id}/assign")
 async def asign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):

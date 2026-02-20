@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom' // <-- Добавили этот импорт
 
 // ============== SPINNER ==============
 export function Spinner({ size = 20 }: { size?: number }) {
@@ -52,7 +53,8 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  return (
+  // Используем createPortal для рендера поверх всего
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={e => e.target === e.currentTarget && onClose()}
@@ -65,7 +67,8 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body // <-- Телепортируем верстку прямо в тег <body>
   )
 }
 

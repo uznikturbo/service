@@ -63,7 +63,7 @@ async def update_user(db: AsyncSession, change: schemas.UserUpdate, user_id: int
     user = await get_user_by_id(db, user_id)
 
     if not user:
-        await None
+        return None, False
 
     update_data = change.model_dump(exclude_unset=True)
 
@@ -89,7 +89,7 @@ async def make_admin(db: AsyncSession, user_id: int):
     user = await get_user_by_id(db, user_id)
 
     if not user:
-        await None
+        return None
 
     user.is_admin = True
 
@@ -121,8 +121,6 @@ async def create_problem(db: AsyncSession, problem: schemas.ProblemCreate, user_
     db.add(db_problem)
     await db.commit()
     
-    # ВАЖНО: Делаем выборку заново с подгрузкой связей, 
-    # иначе Pydantic упадет при попытке прочитать response/service_record
     query = (
         select(models.Problem)
         .where(models.Problem.id == db_problem.id)
@@ -132,13 +130,11 @@ async def create_problem(db: AsyncSession, problem: schemas.ProblemCreate, user_
     return result.scalar_one()
 
 async def get_problems(db: AsyncSession):
-    # Для админа: загружаем все проблемы со связями
     query = select(models.Problem).options(*_problem_query_options())
     result = await db.execute(query)
     return result.scalars().all()
 
 async def get_problems_by_user_id(db: AsyncSession, user_id: int):
-    # Для юзера: только его проблемы со связями
     query = (
         select(models.Problem)
         .where(models.Problem.user_id == user_id)
@@ -148,7 +144,6 @@ async def get_problems_by_user_id(db: AsyncSession, user_id: int):
     return result.scalars().all()
 
 async def get_problem(db: AsyncSession, problem_id: int):
-    # Получение одной проблемы
     query = (
         select(models.Problem)
         .where(models.Problem.id == problem_id)
@@ -158,7 +153,6 @@ async def get_problem(db: AsyncSession, problem_id: int):
     return result.scalar_one_or_none()
 
 async def delete_problem(db: AsyncSession, problem_id: int):
-    # Сначала находим (чтобы вернуть), потом удаляем
     problem = await get_problem(db, problem_id)
     if problem:
         await db.delete(problem)
@@ -166,7 +160,6 @@ async def delete_problem(db: AsyncSession, problem_id: int):
     return problem
 
 async def assign_admin(db: AsyncSession, problem_id: int, admin_id: int):
-    # Обновляем admin_id и статус
     stmt = (
         update(models.Problem)
         .where(models.Problem.id == problem_id)
@@ -175,7 +168,6 @@ async def assign_admin(db: AsyncSession, problem_id: int, admin_id: int):
     await db.execute(stmt)
     await db.commit()
     
-    # Возвращаем обновленный объект с подгрузкой!
     return await get_problem(db, problem_id)
 
 async def update_problem_status(db: AsyncSession, problem_id: int, status_update: schemas.ProblemUpdateStatus):
@@ -191,7 +183,6 @@ async def update_problem_status(db: AsyncSession, problem_id: int, status_update
 # ================= ADMIN RESPONSE =================
 
 async def create_admin_response(db: AsyncSession, response: schemas.AdminResponseCreate, admin_id: int):
-    # Проверяем, есть ли такая проблема
     problem = await get_problem(db, response.problem_id)
     if not problem:
         return None
@@ -199,7 +190,6 @@ async def create_admin_response(db: AsyncSession, response: schemas.AdminRespons
     db_response = models.AdminResponse(
         problem_id=response.problem_id,
         message=response.message,
-        # Если в модели AdminResponse есть поле admin_id, раскомментируйте:
         admin_id=admin_id 
     )
     db.add(db_response)
@@ -211,16 +201,31 @@ async def create_admin_response(db: AsyncSession, response: schemas.AdminRespons
 # ================= SERVICE RECORD =================
 
 async def create_service_record(db: AsyncSession, record: schemas.ServiceRecordCreate):
-    # Так как parts_used это список строк (List[str]), а в БД часто хранится как JSON или строка,
-    # убедитесь, что модель это поддерживает. Если вы используете SQLAlchemy с JSON типом, 
-    # то record.model_dump() сработает нормально.
-    
-    db_record = models.ServiceRecord(**record.model_dump())
-    
+    problem = await get_problem(db, record.problem_id)
+    if not problem:
+        return None
+        
+    db_record = models.ServiceRecord(
+        **record.model_dump(exclude={"user_id"}),
+        user_id=problem.user_id
+    )
     db.add(db_record)
+
+    await update_problem_status(db, record.problem_id, schemas.ProblemUpdateStatus(status="виконано"))
+
     await db.commit()
-    await db.refresh(db_record)
-    return db_record
+
+    query = (
+        select(models.ServiceRecord)
+        .where(models.ServiceRecord.id == db_record.id)
+        .options(
+            selectinload(models.ServiceRecord.user),
+            selectinload(models.ServiceRecord.problem)
+        )
+    )
+    result = await db.execute(query)
+    
+    return result.scalar_one()
 
 async def get_service_record(db: AsyncSession, problem_id: int):
     query = select(models.ServiceRecord).where(models.ServiceRecord.problem_id == problem_id)

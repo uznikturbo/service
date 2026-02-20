@@ -9,9 +9,50 @@ import { ProblemDetail } from './pages/ProblemDetail'
 import { ProfilePage } from './pages/ProfilePage'
 import type { User, Problem, Page } from './types'
 
+// ============== ГОЛОВНА СТОРІНКА (LANDING) ==============
+function LandingPage({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="auth-screen" style={{ flexDirection: 'column', textAlign: 'center' }}>
+      <div className="auth-grid" />
+      
+      <div style={{ position: 'relative', zIndex: 10, maxWidth: '600px', padding: '0 20px', animation: 'fadeUp 0.6s ease forwards' }}>
+        <div 
+          className="logo-mark" 
+          style={{ width: '64px', height: '64px', fontSize: '24px', margin: '0 auto 24px' }}
+        >
+          SD
+        </div>
+        
+        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '42px', fontWeight: 800, marginBottom: '16px', letterSpacing: '0.02em', color: 'var(--text)' }}>
+          SERVICE DESK
+        </h1>
+        
+        <p style={{ color: 'var(--text2)', fontSize: '14px', lineHeight: '1.6', marginBottom: '32px', fontFamily: 'var(--font-mono)' }}>
+          Швидка та зручна система для подачі заявок на технічну підтримку. 
+          Створюйте тікети, відслідковуйте їхній статус та отримуйте допомогу від адміністраторів у реальному часі.
+        </p>
+        
+        <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button 
+            className="btn btn-primary" 
+            style={{ padding: '12px 24px', fontSize: '13px' }}
+            onClick={onStart}
+          >
+            Увійти в систему
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============== ОСНОВНИЙ КОМПОНЕНТ APP ==============
 function AppContent() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  // Новий стан для відображення Landing Page
+  const [showLanding, setShowLanding] = useState(true) 
+  
   const [page, setPage] = useState<Page>('problems')
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -19,7 +60,10 @@ function AppContent() {
   useEffect(() => {
     if (apiClient.token) {
       authApi.me()
-        .then(u => setUser(u))
+        .then(u => {
+          setUser(u)
+          setShowLanding(false) // Якщо токен є і він валідний, ховаємо Landing
+        })
         .catch(() => apiClient.clearToken())
         .finally(() => setLoading(false))
     } else {
@@ -36,6 +80,7 @@ function AppContent() {
   const logout = () => {
     apiClient.clearToken()
     setUser(null)
+    setShowLanding(true) // Після виходу повертаємо на головну
   }
 
   if (loading) {
@@ -55,10 +100,17 @@ function AppContent() {
     )
   }
 
+  // Якщо користувач НЕ авторизований
   if (!user) {
+    if (showLanding) {
+      // Показуємо красиву головну сторінку
+      return <LandingPage onStart={() => setShowLanding(false)} />
+    }
+    // Якщо натиснули "Увійти в систему", показуємо форму логіну/реєстрації
     return <AuthScreen onLogin={setUser} />
   }
 
+  // Якщо користувач авторизований, показуємо інтерфейс
   return (
     <div className="app">
       {sidebarOpen && (

@@ -101,6 +101,7 @@ export const adminApi = {
 
   createServiceRecord: (data: {
     problem_id: number
+    user_id: number
     work_done: string
     warranty_info: string
     used_parts?: string[]

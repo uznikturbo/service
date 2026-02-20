@@ -229,20 +229,33 @@ tr:hover td{background:rgba(255,255,255,0.02);color:var(--text);}
 .form-error{font-size:10px;color:var(--red);margin-top:4px;}
 
 /* Modal */
-.modal-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,0.8);
-  display:flex;align-items:center;justify-content:center;
-  z-index:1000;animation:fadeIn 0.15s ease;backdrop-filter:blur(4px);
-  padding:16px;
-  overscroll-behavior:contain;
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  /* Меняем flex на grid для идеального центрирования */
+  display: grid;
+  place-items: center; 
+  z-index: 1000;
+  animation: fadeIn 0.15s ease forwards;
+  backdrop-filter: blur(4px);
+  padding: 16px;
+  overflow-y: auto; /* Оставляем скролл на случай маленьких экранов */
 }
-.modal{
-  background:var(--bg2);border:1px solid var(--border2);
-  border-radius:var(--radius);width:100%;max-width:520px;
-  animation:fadeUp 0.25s cubic-bezier(0.16,1,0.3,1);
-  max-height:90vh;max-height:90dvh;
-  display:flex;flex-direction:column;
-  overflow:hidden;
+
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 520px;
+  animation: fadeUp 0.25s cubic-bezier(0.16,1,0.3,1) forwards;
+  /* Динамическая высота с учетом отступов, чтобы окно не прилипало */
+  max-height: calc(100vh - 32px); 
+  display: flex;
+  flex-direction: column;
+  /* Дополнительная страховка для выравнивания */
+  margin: auto; 
 }
 .modal-header{
   padding:20px 24px;border-bottom:1px solid var(--border);
@@ -442,16 +455,16 @@ tr:hover td{background:rgba(255,255,255,0.02);color:var(--text);}
   .mobile-problem-list{display:flex;}
 
   /* Modal full-screen on mobile */
-  .modal-overlay{align-items:flex-end;padding:0;padding-bottom:env(safe-area-inset-bottom,0);}
-  .modal{max-width:100%;border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;max-height:92vh;max-height:92dvh;}
+  .modal-overlay{align-items:center;padding:16px;}
+  .modal{max-width:100%;border-radius:var(--radius);max-height:92vh;max-height:92dvh;}
   .modal-body{padding:16px;}
   .modal-header{padding:16px;}
   .modal-footer{padding:12px 16px;flex-wrap:wrap;}
   .modal-footer .btn{flex:1;}
 
   /* Auth */
-  .auth-screen{padding:12px;align-items:flex-end;}
-  .auth-box{border-radius:var(--radius) var(--radius) 0 0;max-width:100%;border-bottom:none;}
+  .auth-screen{padding:12px;align-items:center;}
+  .auth-box{border-radius:var(--radius);max-width:100%;}
   .auth-header{padding:24px 20px 16px;}
   .auth-body{padding:0 20px 24px;}
 

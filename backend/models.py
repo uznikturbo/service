@@ -30,6 +30,7 @@ class Problem(Base):
     response = relationship("AdminResponse", back_populates="problem", uselist=False)
     service_record = relationship("ServiceRecord", back_populates="problem", uselist=False)
 
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -42,6 +43,7 @@ class User(Base):
     problems = relationship("Problem", foreign_keys=[Problem.user_id],back_populates="user")
     assigned_problems = relationship("Problem", foreign_keys=[Problem.admin_id], back_populates="admin")
     responses = relationship("AdminResponse", back_populates="admin")
+    service_record = relationship("ServiceRecord", back_populates="user")
 
 class AdminResponse(Base):
     __tablename__ = "admin_responses"
@@ -64,5 +66,7 @@ class ServiceRecord(Base):
     warranty_info = Column(String(1000))
 
     problem_id = Column(Integer, ForeignKey("problems.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
 
     problem = relationship("Problem", back_populates="service_record")
+    user = relationship("User", back_populates="service_record")

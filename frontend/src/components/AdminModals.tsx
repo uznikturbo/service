@@ -60,11 +60,12 @@ export function AdminResponseModal({ problemId, onClose, onDone }: AdminResponse
 // ============== SERVICE RECORD MODAL ==============
 interface ServiceRecordModalProps {
   problemId: number
+  userId: number
   onClose: () => void
   onDone: () => void
 }
 
-export function ServiceRecordModal({ problemId, onClose, onDone }: ServiceRecordModalProps) {
+export function ServiceRecordModal({ userId, problemId, onClose, onDone }: ServiceRecordModalProps) {
   const [form, setForm] = useState({ work_done: '', warranty_info: '', used_parts: '' })
   const [loading, setLoading] = useState(false)
   const toast = useToast()
@@ -81,6 +82,7 @@ export function ServiceRecordModal({ problemId, onClose, onDone }: ServiceRecord
         : undefined
       await adminApi.createServiceRecord({
         problem_id: problemId,
+        user_id: userId,
         work_done: form.work_done,
         warranty_info: form.warranty_info,
         used_parts: parts,

@@ -67,7 +67,7 @@ class ServiceRecordBase(BaseModel):
 
 class ServiceRecordCreate(ServiceRecordBase):
     problem_id: int
-
+    user_id: int
 
 class ServiceRecordRead(ServiceRecordBase):
     id: int

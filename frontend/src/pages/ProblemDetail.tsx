@@ -273,6 +273,7 @@ export function ProblemDetail({ problem: initialProblem, user, onBack }: Problem
       )}
       {showRecord && (
         <ServiceRecordModal
+          userId={user.id}
           problemId={problem.id}
           onClose={() => setShowRecord(false)}
           onDone={() => { setShowRecord(false); refresh() }}
