@@ -175,8 +175,8 @@ REDIS_URL=redis://redis:6379
 
 ```bash
 # Клонувати репозиторій
-git clone https://github.com/your-username/servicedesk.git
-cd servicedesk
+git clone https://github.com/uznikturbo/service.git
+cd service
 
 # Запустити
 docker-compose up --build
@@ -206,6 +206,9 @@ npm run dev
 ```
 servicedesk/
 ├── backend/
+│   ├── tests/
+│   │     ├── __init__.py
+│   │     └── tests.py
 │   ├── main.py          # FastAPI app, всі ендпоінти
 │   ├── models.py        # SQLAlchemy моделі
 │   ├── schemas.py       # Pydantic схеми
@@ -231,8 +234,8 @@ servicedesk/
 ## `>` ТЕСТУВАННЯ
 
 ```bash
-cd backend
-pytest test_main.py -v
+cd backend/tests
+pytest tests.py -v
 ```
 
 Тести використовують in-memory SQLite та фейковий Redis — зовнішні сервіси не потрібні.
