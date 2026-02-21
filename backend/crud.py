@@ -1,9 +1,11 @@
 import models
 import schemas
+from fastapi import HTTPException, UploadFile, status
 from security import hash_pass, verify_password
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from utils import upload_file
 
 # ================= USERS =================
 
@@ -137,8 +139,15 @@ def _problem_query_options():
         selectinload(models.Problem.user)
     ]
 
-async def create_problem(db: AsyncSession, problem: schemas.ProblemCreate, user_id: int):
-    db_problem = models.Problem(**problem.model_dump(), user_id=user_id)
+async def create_problem(db: AsyncSession, problem_data: schemas.ProblemCreate, image: UploadFile, user_id: int):
+    image_path = None
+
+    if image:
+        image_path = await upload_file(image, "uploads")
+        if image_path is None:
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="must be image with extension png jpeg jpg webp")
+
+    db_problem = models.Problem(title=problem_data.title, description=problem_data.description, user_id=user_id, image_url=image_path)
     db.add(db_problem)
     await db.commit()
     

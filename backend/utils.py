@@ -1,11 +1,14 @@
 import os
 import random
 import string
+import uuid
+from datetime import datetime
 
+import aiofiles
 import crud
 import httpx
 from db import get_db
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, UploadFile, status
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig
 from jose import JWTError, jwt
@@ -94,3 +97,22 @@ async def send_tg_message(chat_id: int, text: str):
             await client.post(url, json={"chat_id": chat_id, "text": text})
         except Exception as e:
             print(f"Error while sending message to Telegram: {e}")
+
+
+async def upload_file(file: UploadFile, folder: str):
+    allowed_ext = {"png", "jpg", "jpeg", "webp"}
+    os.makedirs(folder, exist_ok=True)
+
+    extension = file.filename.split(".")[-1].lower()
+    if extension not in allowed_ext:
+        return None
+    
+    unique_filename = f"{uuid.uuid4()}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.{extension}"
+
+    file_path = os.path.join(folder, unique_filename)
+
+    async with aiofiles.open(file_path, "wb") as out_file:
+        while content := await file.read(1024 * 1024):
+            await out_file.write(content)
+
+    return file_path

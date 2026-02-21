@@ -13,7 +13,7 @@ export class TooManyRequestsError extends Error {
 
 // ============== API CLIENT ==============
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 const TOKEN_KEY = 'sd_token'
 const REFRESH_TOKEN_KEY = 'sd_refresh_token'
@@ -38,13 +38,24 @@ export const apiClient = {
   },
 
   async req<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const isFormData = body instanceof FormData
+    const headers: Record<string, string> = {}
+
+    // МАГІЯ FormData: Якщо це звичайний об'єкт, кажемо що це JSON.
+    // Якщо FormData - браузер сам поставить потрібний Content-Type з boundary!
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json'
+    }
+    
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+
+    // Формуємо тіло запиту
+    const fetchBody = body ? (isFormData ? body : JSON.stringify(body)) : undefined
 
     let res = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: fetchBody as BodyInit | undefined,
     })
 
     // МАГІЯ: Якщо отримали 401, пробуємо оновити токен
@@ -60,7 +71,6 @@ export const apiClient = {
 
         if (refreshRes.ok) {
           const data = await refreshRes.json()
-          // Зберігаємо нові токени (Бекенд має повернути access_token та refresh_token)
           this.setTokens(data.access_token, data.refresh_token || this.refreshToken)
           
           // ПОВТОРЮЄМО початковий запит з новим токеном
@@ -68,10 +78,9 @@ export const apiClient = {
           res = await fetch(`${API_BASE}${path}`, {
             method,
             headers,
-            body: body ? JSON.stringify(body) : undefined,
+            body: fetchBody as BodyInit | undefined, // Використовуємо те ж саме підготовлене тіло
           })
         } else {
-          // Якщо рефреш теж здох — тоді вже точно на логін
           this.clearTokens()
           window.location.href = '/login'
         }
@@ -90,7 +99,7 @@ export const apiClient = {
       throw err
     }
 
-    // Обробка помилок сервера (як і було)
+    // Обробка помилок сервера
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || 'Помилка сервера')
     return data as T
@@ -140,8 +149,9 @@ export const authApi = {
 export const problemsApi = {
   list: () => apiClient.get<Problem[]>('/problems'),
   get: (id: number) => apiClient.get<Problem>(`/problems/${id}`),
-  create: (data: { title: string; description: string; image_url?: string }) =>
-    apiClient.post<Problem>('/problems', data),
+  
+  create: (data: FormData) => apiClient.post<Problem>('/problems', data),
+  
   delete: (id: number) => apiClient.delete<Problem>(`/problems/${id}`),
   assign: (id: number) => apiClient.patch<Problem>(`/problems/${id}/assign`, {}),
   updateStatus: (id: number, status: string) =>

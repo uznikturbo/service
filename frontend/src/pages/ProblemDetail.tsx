@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { problemsApi } from '../api'
+import { problemsApi, API_BASE } from '../api'
 import { useToast } from '../context/ToastContext'
 import { StatusBadge, fmtDate } from '../components/ui'
 import { AdminResponseModal, ServiceRecordModal } from '../components/AdminModals'
 import type { Problem, User } from '../types'
+
 
 interface ProblemDetailProps {
   problem: Problem
@@ -87,12 +88,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
             </div>
             <div className="card-body">
               <div className="detail-field">
-                <div className="detail-field-label">Тема</div>
-                <div className="detail-field-value" style={{ fontFamily: 'var(--font-head)', fontSize: 18, fontWeight: 700 }}>
-                  {problem.title}
-                </div>
-              </div>
-              <div className="detail-field">
                 <div className="detail-field-label">Опис</div>
                 <div className="detail-field-value" style={{ lineHeight: 1.6, fontSize: 13, color: 'var(--text2)' }}>
                   {problem.description}
@@ -101,10 +96,22 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
               {problem.image_url && (
                 <div className="detail-field">
                   <div className="detail-field-label">Зображення</div>
-                  <img src={problem.image_url} alt="attachment" style={{ maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)', marginTop: 4 }} />
+                  <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center', backgroundColor: 'var(--bg2)', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <img 
+                      src={problem.image_url.startsWith('http') ? problem.image_url : `${API_BASE}/${problem.image_url.replace(/^\//, '')}`} 
+                      alt="Додаток до заявки" 
+                      style={{ 
+                        maxWidth: '100%', 
+                        maxHeight: '400px',
+                        objectFit: 'contain', 
+                        borderRadius: '4px' 
+                      }} 
+                    />
+                  </div>
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 16 }}>
                 <div className="detail-field" style={{ margin: 0 }}>
                   <div className="detail-field-label">Дата подачі</div>
                   <div className="detail-field-value td-mono" style={{ fontSize: 12 }}>{fmtDate(problem.date_created)}</div>

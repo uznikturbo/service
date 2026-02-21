@@ -1,23 +1,27 @@
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 import crud
 import schemas
-from db import Base, engine, get_db
+from db import get_db
 from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
     Body,
     Depends,
     FastAPI,
+    File,
+    Form,
     HTTPException,
     Request,
+    UploadFile,
     status,
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi_limiter.depends import RateLimiter
 from fastapi_mail import FastMail, MessageSchema, MessageType
 from models import User
@@ -42,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"]
 )
 
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # ========== USER ENDPOINTS ==========
 
@@ -226,12 +232,15 @@ async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = D
 
 @app.post("/problems", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(3, Duration.MINUTE))))])
 async def create_problem(
-    problem: schemas.ProblemCreate, 
+    title: str = Form(..., max_length=250),
+    description: str = Form(..., maxlength=1000),
+    image: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db), 
     current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
-):
-    new_problem = await crud.create_problem(db, problem, current_user.id)
+):  
+    problem_data = schemas.ProblemCreate(title=title, description=description)
+    new_problem = await crud.create_problem(db, problem_data, image, current_user.id)
     await redis.delete(problems_list_key(current_user.id, False))
     await redis.delete(problems_list_key(0, True))
     return new_problem

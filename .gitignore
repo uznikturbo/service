@@ -6,3 +6,4 @@
 /backend/alembic.ini
 /backend/migrations
 /backend/tests/__pycache__
+/backend/uploads

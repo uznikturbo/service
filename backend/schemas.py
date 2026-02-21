@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
+from fastapi import File, UploadFile
 from pydantic import BaseModel, EmailStr, Field
 
 # ======== USER SCHEMAS ==========
@@ -84,7 +85,6 @@ class ServiceRecordRead(ServiceRecordBase):
 class ProblemBase(BaseModel):
     title: str = Field(..., max_length=250)
     description: str = Field(..., max_length=1000)
-    image_url: Optional[str] = Field(None, max_length=250)
 
 
 class ProblemCreate(ProblemBase):
@@ -97,6 +97,7 @@ class ProblemRead(ProblemBase):
     date_created: datetime
     user_id: int
     admin_id: Optional[int]
+    image_url: str | None = None
 
     response: Optional[AdminResponseRead] = None
     service_record: Optional[ServiceRecordRead] = None
