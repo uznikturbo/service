@@ -43,16 +43,10 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
 # ========== USER ENDPOINTS ==========
 
 @app.post("/register", response_model=schemas.UserRead, dependencies=[Depends(RateLimiter(limiter=Limiter(Rate(5, Duration.HOUR))))])
-async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
+async def register(user: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     if await crud.get_user_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already exists")
     if await crud.get_user_by_username(db, user.username):
