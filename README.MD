@@ -206,25 +206,25 @@ npm run dev
 ```
 servicedesk/
 ├── backend/
-│   ├── tests/
+│   ├── tests/              # Тести
 │   │     ├── __init__.py
 │   │     └── tests.py
-│   ├── main.py          # FastAPI app, всі ендпоінти
-│   ├── models.py        # SQLAlchemy моделі
-│   ├── schemas.py       # Pydantic схеми
-│   ├── crud.py          # Database операції
-│   ├── security.py      # JWT, хешування
-│   ├── utils.py         # Допоміжні функції, залежності
-│   ├── db.py            # Database підключення
-│   ├── redis_config.py  # Redis підключення
-│   ├── bot.py           # Telegram бот
-│   └── alembic/         # Міграції
+│   ├── main.py             # FastAPI app, всі ендпоінти
+│   ├── models.py           # SQLAlchemy моделі
+│   ├── schemas.py          # Pydantic схеми
+│   ├── crud.py             # Database операції
+│   ├── security.py         # JWT, хешування
+│   ├── utils.py            # Допоміжні функції, залежності
+│   ├── db.py               # Database підключення
+│   ├── redis_config.py     # Redis підключення
+│   ├── bot.py              # Telegram бот
+│   └── alembic/            # Міграції
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/       # Сторінки
-│   │   ├── components/  # Компоненти
-│   │   ├── api/         # API клієнт
-│   │   └── types/       # TypeScript типи
+│   │   ├── pages/          # Сторінки
+│   │   ├── components/     # Компоненти
+│   │   ├── api/            # API клієнт
+│   │   └── types/          # TypeScript типи
 │   └── vite.config.ts
 └── docker-compose.yml
 ```
