@@ -154,7 +154,8 @@ function AppContent() {
             <div className="topbar-breadcrumb">
               Service Desk
               <span className="topbar-sep">/</span>
-              {page === 'problems' ? 'Заявки' : 'Профіль'}
+              {/* ИСПРАВЛЕНИЕ 1: Учитываем страницу my-tasks */}
+              {page === 'problems' ? 'Всі заявки' : page === 'my-tasks' ? 'Мої задачі' : 'Профіль'}
               {selectedProblem && (
                 <>
                   <span className="topbar-sep">/</span>
@@ -163,9 +164,14 @@ function AppContent() {
               )}
             </div>
             <div className="topbar-title">
+              {/* ИСПРАВЛЕНИЕ 2: Учитываем страницу my-tasks в заголовке */}
               {selectedProblem
                 ? selectedProblem.title
-                : page === 'problems' ? 'Мої заявки' : 'Профіль'}
+                : page === 'problems' 
+                  ? 'Мої заявки' 
+                  : page === 'my-tasks' 
+                    ? 'Мої задачі' 
+                    : 'Профіль'}
             </div>
           </div>
 
@@ -180,10 +186,17 @@ function AppContent() {
 
         <div className="content">
           <VerifyBanner user={user} onVerified={setUser} />
+          
           {page === 'problems' && !selectedProblem && (
             <ProblemsList user={user} onSelect={setSelectedProblem} />
           )}
-          {page === 'problems' && selectedProblem && (
+          
+          {page === 'my-tasks' && !selectedProblem && (
+            <AdminMyProblems user={user} onSelect={setSelectedProblem} />
+          )}
+
+          {/* ИСПРАВЛЕНИЕ 3: Разрешаем показывать ProblemDetail на обеих вкладках */}
+          {(page === 'problems' || page === 'my-tasks') && selectedProblem && (
             <ProblemDetail
               problem={selectedProblem}
               user={user}
@@ -193,11 +206,9 @@ function AppContent() {
               }}
             />
           )}
+
           {page === 'profile' && (
             <ProfilePage user={user} onUpdate={setUser} onLogout={logout} />
-          )}
-          {page === 'my-tasks' && !selectedProblem && (
-            <AdminMyProblems user={user} onSelect={setSelectedProblem} />
           )}
         </div>
       </main>

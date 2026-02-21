@@ -1,13 +1,11 @@
 import json
 import uuid
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List
 
 import crud
-import redis.asyncio as ioredis
 import schemas
-from db import get_db
+from db import Base, engine, get_db
 from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
@@ -32,6 +30,8 @@ from utils import *
 load_dotenv()
 
 
+
+
 app = FastAPI(redirect_slashes=False)
 
 app.add_middleware(
@@ -41,6 +41,12 @@ app.add_middleware(
     allow_headers=["*"],
     allow_methods=["*"]
 )
+
+
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 # ========== USER ENDPOINTS ==========
@@ -53,18 +59,6 @@ async def register(background_tasks: BackgroundTasks, user: schemas.UserCreate, 
         raise HTTPException(status_code=400, detail="Username already taken")
     
     new_user = await crud.create_user(db, user)
-
-    code = generate_code()
-    await redis.set(f"verification:{new_user.id}", code, ex=600)
-
-    message = MessageSchema(
-        subject="Код верифікації",
-        recipients=[new_user.email],
-        body=f"Ваш код для підтвердження пошти: {code}",
-        subtype=MessageType.plain
-    )
-    fm = FastMail(conf)
-    background_tasks.add_task(fm.send_message, message)
 
     return new_user
 

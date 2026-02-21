@@ -9,7 +9,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=my_app_db
+      - POSTGRES_DB=servicedesk_db
     ports:
       - "5432:5432"
     volumes:
@@ -36,7 +36,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/my_app_db
+      - DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/servicedesk_db
       - REDIS_URL=redis://:very_strong_pass123@redis:6379/0
     restart: always
 

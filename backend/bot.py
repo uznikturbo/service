@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_URL_CONFIRM = "http://localhost:8000/users/telegram/confirm"
-API_URL_CHECK = "http://localhost:8000/users/telegram/check"
+API_URL_CONFIRM = "http://fastapi_backend:8000/users/telegram/confirm"
+API_URL_CHECK = "http://fastapi_backend:8000/users/telegram/check"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
