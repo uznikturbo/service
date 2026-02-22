@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Заявка відмовлена — Service Desk</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0d0d0d;font-family:'Courier New',Courier,monospace;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0d0d0d;min-height:100vh;">
+    <tr>
+      <td align="center" style="padding:48px 16px;">
+
+        <table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#111111;border:1px solid #222222;border-top:3px solid #e53935;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:32px 40px 24px 40px;border-bottom:1px solid #1e1e1e;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <table cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background-color:#F5A623;padding:8px 10px;border-radius:6px;vertical-align:middle;">
+                          <span style="font-family:'Courier New',Courier,monospace;font-weight:700;font-size:14px;color:#0d0d0d;letter-spacing:1px;">SD</span>
+                        </td>
+                        <td style="padding-left:12px;vertical-align:middle;">
+                          <span style="font-family:'Courier New',Courier,monospace;font-size:13px;font-weight:700;color:#ffffff;letter-spacing:3px;text-transform:uppercase;">SERVICE DESK</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <table cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background-color:#1a0d0d;border:1px solid #331a1a;padding:5px 12px;border-radius:3px;">
+                          <span style="font-family:'Courier New',Courier,monospace;font-size:11px;color:#e53935;letter-spacing:2px;text-transform:uppercase;">&#10005; ВІДМОВЛЕНО</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 40px 32px 40px;">
+
+              <p style="margin:0 0 8px 0;font-family:'Courier New',Courier,monospace;font-size:11px;color:#e53935;letter-spacing:3px;text-transform:uppercase;">// СТАТУС ЗАЯВКИ ОНОВЛЕНО</p>
+
+              <h1 style="margin:0 0 24px 0;font-family:'Courier New',Courier,monospace;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:1px;">На жаль, заявку відмовлено</h1>
+
+              <p style="margin:0 0 12px 0;font-family:'Courier New',Courier,monospace;font-size:14px;color:#888888;line-height:1.7;">
+                Привіт, <span style="color:#ffffff;">{{username}}</span>!
+              </p>
+              <p style="margin:0 0 32px 0;font-family:'Courier New',Courier,monospace;font-size:14px;color:#888888;line-height:1.7;">
+                Ваша заявка отримала статус <span style="color:#e53935;font-weight:700;">відмовлено</span>. Якщо ви вважаєте це помилкою або потребуєте додаткових пояснень — зверніться до адміністратора.
+              </p>
+
+              <!-- Ticket info -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:32px;background-color:#0d0d0d;border:1px solid #1e1e1e;">
+                <tr>
+                  <td style="padding:20px 24px;border-bottom:1px solid #1e1e1e;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td>
+                          <p style="margin:0 0 4px 0;font-family:'Courier New',Courier,monospace;font-size:10px;color:#444444;letter-spacing:2px;text-transform:uppercase;">НОМЕР ЗАЯВКИ</p>
+                          <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:18px;font-weight:700;color:#F5A623;">#{{problem_id}}</p>
+                        </td>
+                        <td align="right">
+                          <table cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td style="background-color:#1a0d0d;border:1px solid #331a1a;padding:6px 14px;">
+                                <span style="font-family:'Courier New',Courier,monospace;font-size:11px;color:#e53935;letter-spacing:1px;">&#10005; ВІДМОВЛЕНО</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 24px;">
+                    <p style="margin:0 0 4px 0;font-family:'Courier New',Courier,monospace;font-size:10px;color:#444444;letter-spacing:2px;text-transform:uppercase;">ПОПЕРЕДНІЙ СТАТУС</p>
+                    <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:13px;color:#888888;">В обробці &nbsp;&#8594;&nbsp; <span style="color:#e53935;">Відмовлено</span></p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Suggestion -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background-color:#1a0d0d;border:1px solid #331a1a;border-left:4px solid #e53935;padding:14px 16px;">
+                    <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:12px;color:#888888;line-height:1.6;">
+                      Ви можете подати нову заявку з більш детальним описом проблеми.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 40px 28px 40px;border-top:1px solid #1e1e1e;">
+              <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:11px;color:#333333;letter-spacing:1px;">
+                &copy; SERVICE DESK &nbsp;|&nbsp; Автоматичне повідомлення — не відповідайте на цей лист
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

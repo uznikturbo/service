@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 import models
 import schemas
-from fastapi import HTTPException, UploadFile, status
+from fastapi import Depends, HTTPException, Query, UploadFile, status
 from security import hash_pass, verify_password
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +43,6 @@ async def get_user_by_username(db: AsyncSession, username: str):
     )
     return result.scalar_one_or_none()
 
-
 async def authenticate_user(db: AsyncSession, email: str, password: str):
     user = await get_user_by_email(db, email)
 
@@ -65,15 +66,9 @@ async def update_user(db: AsyncSession, change: schemas.UserUpdate, user_id: int
     user = await get_user_by_id(db, user_id)
 
     if not user:
-        return None, False
+        return None
 
     update_data = change.model_dump(exclude_unset=True)
-
-    email_changed = False
-
-    if "email" in update_data and update_data["email"] != user.email:
-        user.is_verified = False
-        email_changed = True
 
     if 'password' in update_data:
         update_data["password"] = hash_pass(update_data["password"])
@@ -84,7 +79,7 @@ async def update_user(db: AsyncSession, change: schemas.UserUpdate, user_id: int
     await db.commit()
     await db.refresh(user)
 
-    return user, email_changed
+    return user
 
 
 async def make_admin(db: AsyncSession, user_id: int):
@@ -97,6 +92,8 @@ async def make_admin(db: AsyncSession, user_id: int):
 
     await db.commit()
     await db.refresh(user)
+
+    return user
 
 
 async def verify_user(db: AsyncSession, user_id:int):
@@ -127,9 +124,6 @@ async def unlink_user_tg(db: AsyncSession, user_id: int):
 
     return user
 
-
-
-
 # ================= PROBLEMS =================
 
 def _problem_query_options():
@@ -157,7 +151,11 @@ async def create_problem(db: AsyncSession, problem_data: schemas.ProblemCreate, 
         .options(*_problem_query_options())
     )
     result = await db.execute(query)
-    return result.scalar_one()
+
+    fetched_problem = result.scalar_one()
+
+    fetched_problem.messages = []
+    return fetched_problem
 
 async def get_problems(db: AsyncSession):
     query = select(models.Problem).options(*_problem_query_options())
@@ -210,6 +208,26 @@ async def update_problem_status(db: AsyncSession, problem_id: int, status_update
     await db.commit()
     
     return await get_problem(db, problem_id)
+
+
+async def create_message(db: AsyncSession, text: str, sender_id: int, problem_id: int):
+    problem = await get_problem(db, problem_id)
+    if not problem:
+        return None
+    user = await get_user_by_id(db, sender_id)
+
+    if not user:
+        return None
+    
+    is_admin = user.is_admin
+
+    db_message = models.ProblemMessage(message=text, user_id=sender_id, problem_id=problem_id, is_admin=is_admin, date_created=datetime.now(timezone.utc))
+    db.add(db_message)
+    await db.commit()
+    await db.refresh(db_message)
+    return db_message
+    
+
 # ================= ADMIN RESPONSE =================
 
 async def create_admin_response(db: AsyncSession, response: schemas.AdminResponseCreate, admin_id: int):

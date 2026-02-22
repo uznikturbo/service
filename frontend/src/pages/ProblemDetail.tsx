@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { problemsApi, API_BASE } from '../api'
 import { useToast } from '../context/ToastContext'
 import { StatusBadge, fmtDate } from '../components/ui'
-import { AdminResponseModal, ServiceRecordModal } from '../components/AdminModals'
+import { ServiceRecordModal } from '../components/AdminModals'
 import type { Problem, User } from '../types'
-
 
 interface ProblemDetailProps {
   problem: Problem
@@ -16,9 +15,13 @@ interface ProblemDetailProps {
 export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate }: ProblemDetailProps) {
   const [problem, setProblem] = useState<Problem>(initialProblem)
   const [loading, setLoading] = useState(false)
-  const [showResponse, setShowResponse] = useState(false)
   const [showRecord, setShowRecord] = useState(false)
   const toast = useToast()
+
+  const [messages, setMessages] = useState<any[]>(initialProblem.messages || [])
+  const [newMessage, setNewMessage] = useState('')
+  const [ws, setWs] = useState<WebSocket | null>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
   const handleUpdate = (data: Problem) => {
     setProblem(data)
@@ -29,14 +32,70 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
     try {
       const data = await problemsApi.get(problem.id)
       handleUpdate(data)
-    } catch {}
+      if (data.messages) setMessages(data.messages)
+    } catch (e) {
+      console.error("Не вдалося оновити дані проблеми", e)
+    }
   }
+
+  // 1. ПІДТЯГУЄМО СВІЖІ ДАНІ ПРИ ВІДКРИТТІ АБО ПІСЛЯ F5
+  useEffect(() => {
+    refresh()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problem.id])
+
+  // --- WebSocket Логіка ---
+  useEffect(() => {
+    const isCreator = user.id === problem.user_id;
+    const isAssignedAdmin = user.is_admin && problem.admin_id === user.id;
+
+    if ((!isCreator && !isAssignedAdmin) || !problem.admin_id) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    // Автоматично адаптуємо протокол (ws:// для http, wss:// для https)
+    const wsProtocol = API_BASE.startsWith('https') ? 'wss' : 'ws';
+    const wsBaseUrl = API_BASE.replace(/^https?/, wsProtocol);
+    const wsUrl = `${wsBaseUrl}/ws/problems/${problem.id}/chat?token=${token}`;
+    
+    const socket = new WebSocket(wsUrl);
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setMessages((prev) => [...prev, data]);
+    };
+
+    socket.onerror = () => {
+      toast('Помилка з\'єднання з чатом', 'error');
+    };
+
+    setWs(socket);
+
+    return () => {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    };
+  }, [problem.id, problem.admin_id, problem.user_id, user.id, user.is_admin, toast]);
+
+  // Автоскрол до останнього повідомлення
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ws || ws.readyState !== WebSocket.OPEN || !newMessage.trim()) return;
+
+    ws.send(JSON.stringify({ message: newMessage }));
+    setNewMessage('');
+  };
+  // ------------------------
 
   const assign = async () => {
     setLoading(true)
     try {
-      // Твій бекенд вже ставить статус "в роботі" в crud.assign_admin, 
-      // тому нам не треба робити додатковий запит. Просто беремо те, що повернув сервер.
       const data = await problemsApi.assign(problem.id)
       handleUpdate(data)
       toast('Заявку взято в роботу', 'success')
@@ -61,6 +120,9 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
   }
 
   const isClosed = ['виконано', 'відмовлено'].includes(problem.status)
+
+  // Перевірка чи може поточний юзер бачити чат
+  const canSeeChat = problem.admin_id && (user.id === problem.user_id || (user.is_admin && problem.admin_id === user.id));
 
   return (
     <div className="animate-fadeUp">
@@ -124,23 +186,73 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
             </div>
           </div>
 
-          {/* Admin response */}
-          {problem.response ? (
+          {/* Чат */}
+          {canSeeChat ? (
             <div className="panel-section">
-              <div className="panel-section-title">Відповідь адміністратора</div>
-              <div className="panel-section-body">
-                <div className="response-msg">{problem.response.message}</div>
-                <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text3)' }}>
-                  Адмін #{problem.response.admin_id} · {fmtDate(problem.response.date_responded)}
+              <div className="panel-section-title">Чат по заявці</div>
+              <div className="panel-section-body" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
+                
+                {/* Список повідомлень */}
+                <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
+                  {messages.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 12, margin: 'auto' }}>
+                      Повідомлень поки немає. Напишіть першим!
+                    </div>
+                  ) : (
+                    messages.map((msg, idx) => {
+                      const isMe = msg.user_id === user.id;
+                      return (
+                        <div key={idx} style={{
+                          alignSelf: isMe ? 'flex-end' : 'flex-start',
+                          backgroundColor: isMe ? 'var(--accent)' : 'var(--bg2)',
+                          color: isMe ? '#fff' : 'var(--text1)',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          maxWidth: '80%',
+                          fontSize: 13
+                        }}>
+                          <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4 }}>
+                            {msg.is_admin ? 'Адміністратор' : 'Користувач'}
+                          </div>
+                          {msg.message}
+                        </div>
+                      )
+                    })
+                  )}
+                  <div ref={chatEndRef} />
                 </div>
+
+                {/* Поле вводу */}
+                {!isClosed && (
+                  <form onSubmit={sendMessage} style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      className="input"
+                      style={{ flex: 1 }}
+                      placeholder="Написати повідомлення..."
+                      value={newMessage}
+                      onChange={e => setNewMessage(e.target.value)}
+                    />
+                    <button type="submit" className="btn btn-primary" disabled={!newMessage.trim() || !ws || ws.readyState !== WebSocket.OPEN}>
+                      ➤
+                    </button>
+                  </form>
+                )}
+                {isClosed && (
+                  <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text3)', padding: 8 }}>
+                    Заявку закрито. Чат доступний лише для читання.
+                  </div>
+                )}
               </div>
             </div>
           ) : (
-            <div className="card" style={{ borderStyle: 'dashed', opacity: 0.5 }}>
-              <div className="card-body" style={{ textAlign: 'center', padding: 24, color: 'var(--text3)', fontSize: 12 }}>
-                ◌ Відповідь ще не надана
+            !problem.admin_id && (
+              <div className="card" style={{ borderStyle: 'dashed', opacity: 0.5 }}>
+                <div className="card-body" style={{ textAlign: 'center', padding: 24, color: 'var(--text3)', fontSize: 12 }}>
+                  ◌ Чат стане доступним після того, як адміністратор прийме заявку
+                </div>
               </div>
-            </div>
+            )
           )}
 
           {/* Service record */}
@@ -179,22 +291,13 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
                   </button>
                 )}
 
-                {problem.admin_id === user.id && !problem.response && (
-                  <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setShowResponse(true)}>
-                    ✎ Надати відповідь
-                  </button>
-                )}
-
                 {!isClosed && problem.admin_id === user.id && (
                   <>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ width: '100%', color: 'var(--green)' }}
-                      onClick={() => changeStatus('виконано')}
-                      disabled={loading}
-                    >
-                      ✓ Виконано
-                    </button>
+                      {problem.admin_id === user.id && !problem.service_record && (
+                        <button className="btn btn-ghost" style={{ width: '100%', color: 'var(--green)' }} onClick={() => setShowRecord(true)}>
+                          ◫ Сервісний запис
+                        </button>
+                      )}
                     <button
                       className="btn btn-danger"
                       style={{ width: '100%' }}
@@ -206,11 +309,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
                   </>
                 )}
                 
-                {problem.admin_id === user.id && !problem.service_record && (
-                  <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setShowRecord(true)}>
-                    ◫ Сервісний запис
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -220,7 +318,7 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
             <div className="panel-section-title">Інформація</div>
             <div className="panel-section-body">
               {[
-                ['Статус', <StatusBadge status={problem.status} />],
+                ['Статус', <StatusBadge key="status" status={problem.status} />],
                 ['Виконавець', problem.admin_id ? `ID:${problem.admin_id}` : 'Не призначено'],
                 ['Створено', fmtDate(problem.date_created)],
               ].map(([k, v], i) => (
@@ -234,13 +332,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
         </div>
       </div>
 
-      {showResponse && (
-        <AdminResponseModal
-          problemId={problem.id}
-          onClose={() => setShowResponse(false)}
-          onDone={() => { setShowResponse(false); refresh() }} 
-        />
-      )}
       {showRecord && (
         <ServiceRecordModal
           userId={user.id}

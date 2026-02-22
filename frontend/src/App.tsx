@@ -66,8 +66,22 @@ function AppContent() {
   // Новий стан для відображення Landing Page
   const [showLanding, setShowLanding] = useState(true) 
   
-  const [page, setPage] = useState<Page>('problems')
-  const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
+  const [page, setPage] = useState<Page>(() => {
+    return (sessionStorage.getItem('desk_page') as Page) || 'problems'
+  })
+  const [selectedProblem, setSelectedProblem] = useState<Problem | null>(() => {
+    const saved = sessionStorage.getItem('desk_problem')
+    return saved ? JSON.parse(saved) : null
+  })
+
+  useEffect(() => {
+    sessionStorage.setItem('desk_page', page)
+    if (selectedProblem) {
+      sessionStorage.setItem('desk_problem', JSON.stringify(selectedProblem))
+    } else {
+      sessionStorage.removeItem('desk_problem')
+    }
+  }, [page, selectedProblem])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [problems, setProblems] = useState<Problem[]>([])
 

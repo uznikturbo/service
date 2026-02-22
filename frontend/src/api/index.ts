@@ -1,5 +1,3 @@
-// ============== КАСТОМНІ ПОМИЛКИ ==============
-
 export class TooManyRequestsError extends Error {
   retryAfter?: number
 
@@ -11,17 +9,14 @@ export class TooManyRequestsError extends Error {
   }
 }
 
-// ============== API CLIENT ==============
-
 export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
-
-const TOKEN_KEY = 'sd_token'
+const TOKEN_KEY = 'token'
 const REFRESH_TOKEN_KEY = 'sd_refresh_token'
 
 export const apiClient = {
   token: localStorage.getItem(TOKEN_KEY) || '',
   refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || '',
-  isRefreshing: false, // Прапорець, щоб не спамити рефреш-запитами
+  isRefreshing: false,
 
   setTokens(access: string, refresh: string) {
     this.token = access
@@ -41,15 +36,12 @@ export const apiClient = {
     const isFormData = body instanceof FormData
     const headers: Record<string, string> = {}
 
-    // МАГІЯ FormData: Якщо це звичайний об'єкт, кажемо що це JSON.
-    // Якщо FormData - браузер сам поставить потрібний Content-Type з boundary!
     if (!isFormData) {
       headers['Content-Type'] = 'application/json'
     }
     
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
 
-    // Формуємо тіло запиту
     const fetchBody = body ? (isFormData ? body : JSON.stringify(body)) : undefined
 
     let res = await fetch(`${API_BASE}${path}`, {
@@ -58,7 +50,6 @@ export const apiClient = {
       body: fetchBody as BodyInit | undefined,
     })
 
-    // МАГІЯ: Якщо отримали 401, пробуємо оновити токен
     if (res.status === 401 && this.refreshToken && !this.isRefreshing) {
       this.isRefreshing = true
       
@@ -73,12 +64,11 @@ export const apiClient = {
           const data = await refreshRes.json()
           this.setTokens(data.access_token, data.refresh_token || this.refreshToken)
           
-          // ПОВТОРЮЄМО початковий запит з новим токеном
           headers['Authorization'] = `Bearer ${this.token}`
           res = await fetch(`${API_BASE}${path}`, {
             method,
             headers,
-            body: fetchBody as BodyInit | undefined, // Використовуємо те ж саме підготовлене тіло
+            body: fetchBody as BodyInit | undefined,
           })
         } else {
           this.clearTokens()
@@ -91,7 +81,6 @@ export const apiClient = {
       }
     }
 
-    // Обробка 429 Too Many Requests
     if (res.status === 429) {
       const retryAfter = parseInt(res.headers.get('Retry-After') ?? '', 10) || undefined
       const err = new TooManyRequestsError(retryAfter)
@@ -99,7 +88,6 @@ export const apiClient = {
       throw err
     }
 
-    // Обробка помилок сервера
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || 'Помилка сервера')
     return data as T
@@ -111,12 +99,10 @@ export const apiClient = {
   delete<T>(path: string) { return this.req<T>('DELETE', path) },
 }
 
-// ============== API METHODS ==============
 import type { User, Problem, Token, AdminResponse, ServiceRecord } from '../types'
 
 export const authApi = {
   login: async (email: string, password: string) => {
-    // Оновлено: зберігаємо обидва токени при логіні
     const data = await apiClient.post<Token & { refresh_token: string }>('/login', { email, password })
     apiClient.setTokens(data.access_token, data.refresh_token)
     return data

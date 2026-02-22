@@ -7,6 +7,7 @@ import crud
 import schemas
 from db import get_db
 from dotenv import load_dotenv
+from email_templates import render
 from fastapi import (
     BackgroundTasks,
     Body,
@@ -17,6 +18,8 @@ from fastapi import (
     HTTPException,
     Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.encoders import jsonable_encoder
@@ -48,6 +51,9 @@ app.add_middleware(
 
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+manager = ConnectionManager()
+
 
 # ========== USER ENDPOINTS ==========
 
@@ -99,11 +105,12 @@ async def resend_code(background_tasks: BackgroundTasks, current_user: User = De
         code = generate_code()
         await redis.set(f"verification:{current_user.id}", code, ex=600)
 
+    body = render("verification_code", code=code)
     message = MessageSchema(
     subject="Код верифікації",
     recipients=[current_user.email],
-    body=f"Ваш код для підтвердження пошти: {code}",
-    subtype=MessageType.plain
+    body=body,
+    subtype=MessageType.html
     )
     fm = FastMail(conf)
     background_tasks.add_task(fm.send_message, message)
@@ -137,27 +144,11 @@ async def delete_user(
     return await crud.delete_user(db, current_user.id)
 
 @app.patch("/users/me", response_model=schemas.UserRead, dependencies=[Depends(RateLimiter(Limiter(Rate(10, Duration.MINUTE * 10))))])
-async def update_profile(update_data: schemas.UserUpdate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), redis = Depends(get_redis)):
-    updated_user, email_changed = await crud.update_user(db, update_data, current_user.id)
+async def update_profile(update_data: schemas.UserUpdate,db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    updated_user = await crud.update_user(db, update_data, current_user.id)
 
     if not updated_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    if email_changed:
-        code = generate_code()
-
-        await redis.set(f"verification:{updated_user.id}", code, ex=600)
-
-        message = MessageSchema(
-            subject="Підтвердження нової пошти",
-            recipients=[updated_user.email],
-            body=f"Ви змінили пошту. Ваш новий код підтвердження: {code}",
-            subtype=MessageType.plain
-        )    
-
-        fm = FastMail(conf)
-        background_tasks.add_task(fm.send_message, message)
-
     return updated_user
 
 @app.post("/users/makeadmin")
@@ -212,14 +203,15 @@ async def unlink_tg(background_tasks: BackgroundTasks, db: AsyncSession = Depend
     return updated_user
 
 @app.post("/auth/refresh", dependencies=[Depends(RateLimiter(Limiter(Rate(30, Duration.MINUTE))))])
-async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = Depends(get_db)):
+async def refresh_access_token(data: schemas.RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     try:
-        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(data.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         
         user_id = payload.get("sub")
-        user = await crud.get_user_by_id(db, user_id)
+        user = await crud.get_user_by_id(db, int(user_id))
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         
@@ -233,7 +225,7 @@ async def refresh_access_token(refresh_token: str = Body(), db: AsyncSession = D
 @app.post("/problems", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(3, Duration.MINUTE))))])
 async def create_problem(
     title: str = Form(..., max_length=250),
-    description: str = Form(..., maxlength=1000),
+    description: str = Form(..., max_length=1000),
     image: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db), 
     current_user: User = Depends(get_verified_user), 
@@ -245,7 +237,7 @@ async def create_problem(
     await redis.delete(problems_list_key(0, True))
     return new_problem
 
-@app.get("/problems", response_model=List[schemas.ProblemRead])
+@app.get("/problems", response_model=List[schemas.ProblemListRead])
 async def get_problems(
     db: AsyncSession = Depends(get_db), 
     current_user: User = Depends(get_verified_user), 
@@ -285,12 +277,81 @@ async def get_problem(
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
     
-    if not current_user.is_admin and problem.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your problem")
+    is_creator = problem.user_id == current_user.id
+    is_assigned_admin = current_user.is_admin and problem.admin_id == current_user.id
+    is_unassigned_admin = current_user.is_admin and problem.admin_id is None
+    
+    if not (is_creator or is_assigned_admin or is_unassigned_admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your problem")
     
     serialized = jsonable_encoder(problem)
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
+
+
+@app.websocket("/ws/problems/{id}/chat")
+async def problem_chat(
+    websocket: WebSocket, 
+    id: int, 
+    current_user = Depends(get_current_user_ws), 
+    db: AsyncSession = Depends(get_db), 
+    redis = Depends(get_redis)
+):
+    await websocket.accept()
+
+    problem = await crud.get_problem(db, id)
+
+    if not problem:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    
+    is_creator = problem.user_id == current_user.id
+    is_assigned_admin = current_user.is_admin and problem.admin_id == current_user.id
+
+    if not (is_creator or is_assigned_admin):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    manager.connect(websocket, id)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            
+            try:
+                message_data = json.loads(data)
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({"error": "Invalid JSON format"}))
+                continue
+
+            text = message_data.get("message")
+            
+            if not text or not str(text).strip():
+                continue
+
+            new_message = await crud.create_message(
+                db=db, 
+                text=text.strip(), 
+                sender_id=current_user.id, 
+                problem_id=id
+            )
+
+            if new_message:
+                await redis.delete(f"problem:{id}")
+
+                response_payload = {
+                    "id": new_message.id,
+                    "message": new_message.message,
+                    "user_id": new_message.user_id,
+                    "is_admin": new_message.is_admin,
+                    "date_created": new_message.date_created.isoformat()
+                }
+            
+                await manager.broadcast_to_problem(json.dumps(response_payload), id)
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, id)
+
 
 @app.delete("/problems/{id}")
 async def delete_problem(
@@ -327,30 +388,23 @@ async def change_problem_status(
     if not updated:
         raise HTTPException(status_code=404, detail="Problem not found")
 
-    if updated.status == "виконано":
-        message = MessageSchema(
-        subject=f"Заявка №{updated.id} виконана!",
-        recipients=[updated.user.email],
-        body=f"Привіт, {updated.user.username}!\n\nВаша заявка №{updated.id} змінила статус на 'виконано'.",
-        subtype=MessageType.plain
-        )
-        tg_message = f"✅ Ваша заявка №{updated.id} виконана!"
-    else:
+    if status_update.status == "відмовлено":
+        body = render("ticket_rejected", username=updated.user.username, problem_id=updated.id)
         message = MessageSchema(
         subject=f"Заявка №{updated.id} відмовлена🙁",
         recipients=[updated.user.email],
-        body=f"Привіт, {updated.user.username}!\n\nВаша заявка №{updated.id} змінила статус на 'відмовлено'.",
-        subtype=MessageType.plain
+        body=body,
+        subtype=MessageType.html
         )
 
         tg_message = f"❌ Ваша заявка №{updated.id} відмовлена🙁"
 
-    fm = FastMail(conf)
+        fm = FastMail(conf)
 
-    background_tasks.add_task(fm.send_message, message)
+        background_tasks.add_task(fm.send_message, message)
 
-    if updated.user.telegram_id:
-        background_tasks.add_task(send_tg_message, updated.user.telegram_id, tg_message)
+        if updated.user.telegram_id:
+            background_tasks.add_task(send_tg_message, updated.user.telegram_id, tg_message)
 
     await redis.delete(f"problem:{id}")
     await redis.delete(problems_list_key(updated.user_id, False))
@@ -368,20 +422,13 @@ async def create_service_record(
 ):
     new_service_record = await crud.create_service_record(db, record)
 
-    if new_service_record.used_parts:
-        message = MessageSchema(
-        subject=f"Заявка №{new_service_record.problem_id} виконана!",
-        recipients=[new_service_record.user.email],
-        body=f"Привіт, {new_service_record.user.username}!\n\nВаша заявка №{new_service_record.problem_id} виконана.\nІнформація: {new_service_record.work_done}\nВикористані деталі:{', '.join(new_service_record.used_parts)}",
-        subtype=MessageType.plain
-        )
-    else:
-        message = MessageSchema(
-        subject=f"Заявка №{new_service_record.problem_id} виконана!",
-        recipients=[new_service_record.user.email],
-        body=f"Привіт, {new_service_record.user.username}!\n\nВаша заявка №{new_service_record.problem_id} виконана.\nІнформація: {new_service_record.work_done}",
-        subtype=MessageType.plain
-        )
+    body = render("service_record", username=new_service_record.user.username, problem_id=new_service_record.problem_id, work_done=new_service_record.work_done, used_parts=new_service_record.used_parts, warranty_info=new_service_record.warranty_info)
+    message = MessageSchema(
+    subject=f"Заявка №{new_service_record.problem_id} виконана!",
+    recipients=[new_service_record.user.email],
+    body=body,
+    subtype=MessageType.html
+    )
 
     fm = FastMail(conf)
     background_tasks.add_task(fm.send_message, message)
@@ -409,7 +456,3 @@ async def assign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User 
     await redis.delete(f"problem:{id}")
 
     return new_assign
-
-@app.post("/problems/response", response_model=schemas.AdminResponseRead)
-async def admin_response(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), response: schemas.AdminResponseCreate = Body(...)):
-    return await crud.create_admin_response(db, response, admin.id)

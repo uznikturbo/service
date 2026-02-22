@@ -3,12 +3,22 @@ import random
 import string
 import uuid
 from datetime import datetime
+from typing import Dict, List
 
 import aiofiles
 import crud
 import httpx
 from db import get_db
-from fastapi import Depends, HTTPException, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketException,
+    status,
+)
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig
 from jose import JWTError, jwt
@@ -18,6 +28,44 @@ from security import ALGORITHM, SECRET_KEY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[int, List[WebSocket]] = {}
+    
+    def connect(self, websocket: WebSocket, problem_id: int):
+        if problem_id not in self.active_connections:
+            self.active_connections[problem_id] = []
+        self.active_connections[problem_id].append(websocket)
+    
+    def disconnect(self, websocket: WebSocket, problem_id: int):
+        if problem_id in self.active_connections:
+            if websocket in self.active_connections[problem_id]:
+                self.active_connections[problem_id].remove(websocket)
+            
+            if not self.active_connections[problem_id]:
+                del self.active_connections[problem_id]
+
+    async def broadcast_to_problem(self, message: str, problem_id: int):
+        if problem_id in self.active_connections:
+            for connection in self.active_connections[problem_id][:]:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    self.disconnect(connection, problem_id)
+
+
+conf = ConnectionConfig(
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM = os.getenv("MAIL_FROM"),
+    MAIL_PORT = 587,
+    MAIL_SERVER = "smtp.gmail.com",
+    MAIL_STARTTLS = True,
+    MAIL_SSL_TLS = False,
+    USE_CREDENTIALS = True,
+    VALIDATE_CERTS = True
+)
 
 
 def problems_list_key(user_id: int, is_admin: bool) -> str:
@@ -71,19 +119,6 @@ async def get_current_admin(user: User = Depends(get_verified_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
-
-conf = ConnectionConfig(
-    MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM = os.getenv("MAIL_FROM"),
-    MAIL_PORT = 587,
-    MAIL_SERVER = "smtp.gmail.com",
-    MAIL_STARTTLS = True,
-    MAIL_SSL_TLS = False,
-    USE_CREDENTIALS = True,
-    VALIDATE_CERTS = True
-)
-
 def generate_code():
     return "".join(random.choices(string.digits, k=6))
 
@@ -116,3 +151,36 @@ async def upload_file(file: UploadFile, folder: str):
             await out_file.write(content)
 
     return file_path
+
+
+async def get_user_by_token(token: str, db: AsyncSession):
+    print(f"[WS DEBUG] Отримано токен: {token[:20]}...") # Дивимось, чи нема зайвих символів
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+
+        if user_id is None:
+            print("[WS DEBUG] Помилка: У payload немає поля 'sub'")
+            return None
+    
+    except JWTError as e:
+        print(f"[WS DEBUG] Помилка декодування JWT: {e}") # ТУТ зазвичай криється проблема!
+        return None
+    
+    user = await crud.get_user_by_id(db, int(user_id))
+
+    if not user:
+        print(f"[WS DEBUG] Користувача з ID {user_id} не знайдено в БД")
+        return None
+    
+    return user
+
+async def get_current_user_ws(token: str = Query(...), db: AsyncSession = Depends(get_db)):
+    user = await get_user_by_token(token, db)
+
+    if not user:
+        print("[WS DEBUG] WebSocketException викликано! Користувач = None")
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+    
+    print(f"[WS DEBUG] Успішна авторизація для WS! Юзер: {user.username}")
+    return user

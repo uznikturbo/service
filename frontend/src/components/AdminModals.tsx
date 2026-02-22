@@ -1,71 +1,14 @@
 import { useState } from 'react'
-import { adminApi, problemsApi } from '../api'
+import { adminApi } from '../api'
 import { useToast } from '../context/ToastContext'
 import { Modal, Spinner } from './ui'
-import { Problem } from '../types' // Виправив шлях імпорту на відносний, як у решті твоїх файлів
-
-// ============== ADMIN RESPONSE MODAL ==============
-interface AdminResponseModalProps {
-  problemId: number
-  onClose: () => void
-  onDone: (data: Problem) => void // Очікує дані типу Problem
-}
-
-export function AdminResponseModal({ problemId, onClose, onDone }: AdminResponseModalProps) {
-  const [msg, setMsg] = useState('')
-  const [loading, setLoading] = useState(false)
-  const toast = useToast()
-
-  const submit = async () => {
-    if (!msg.trim()) return
-    setLoading(true)
-    try {
-      // Зберігаємо результат запиту в змінну data
-      await adminApi.respond(problemId, msg)
-      const data = await problemsApi.get(problemId)
-      toast('Відповідь надіслана', 'success')
-      onDone(data) // Передаємо оновлену заявку в батьківський компонент
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Помилка', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Modal
-      title="Відповідь адміністратора"
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn btn-primary" onClick={submit} disabled={loading || !msg.trim()}>
-            {loading && <Spinner size={12} />}
-            Надіслати
-          </button>
-        </>
-      }
-    >
-      <div className="form-group">
-        <label className="form-label">Повідомлення</label>
-        <textarea
-          className="form-textarea"
-          style={{ minHeight: 140 }}
-          value={msg}
-          onChange={e => setMsg(e.target.value)}
-          placeholder="Напишіть відповідь на заявку..."
-        />
-      </div>
-    </Modal>
-  )
-}
 
 // ============== SERVICE RECORD MODAL ==============
 interface ServiceRecordModalProps {
   problemId: number
   userId: number
   onClose: () => void
-  onDone: (data: Problem) => void // Очікує дані типу Problem
+  onDone: () => void
 }
 
 export function ServiceRecordModal({ userId, problemId, onClose, onDone }: ServiceRecordModalProps) {
@@ -84,7 +27,6 @@ export function ServiceRecordModal({ userId, problemId, onClose, onDone }: Servi
         ? form.used_parts.split(',').map(s => s.trim()).filter(Boolean)
         : undefined
       
-      // Зберігаємо результат створення запису (бекенд має повернути оновлену Problem)
       await adminApi.createServiceRecord({
         problem_id: problemId,
         user_id: userId,
@@ -93,9 +35,8 @@ export function ServiceRecordModal({ userId, problemId, onClose, onDone }: Servi
         used_parts: parts,
       })
       
-      const data = await problemsApi.get(problemId)
       toast('Сервісний запис додано', 'success')
-      onDone(data) // Передаємо оновлену заявку далі
+      onDone() // Закриваємо модалку і кажемо ProblemDetail оновити дані
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Помилка', 'error')
     } finally {

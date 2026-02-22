@@ -30,7 +30,7 @@ class Problem(Base):
 
     response = relationship("AdminResponse", back_populates="problem", uselist=False)
     service_record = relationship("ServiceRecord", back_populates="problem", uselist=False)
-
+    messages = relationship("ProblemMessage", back_populates="problem", order_by="ProblemMessage.date_created", cascade="all, delete-orphan", lazy="selectin")
 
 class User(Base):
     __tablename__ = "users"
@@ -72,3 +72,16 @@ class ServiceRecord(Base):
 
     problem = relationship("Problem", back_populates="service_record")
     user = relationship("User", back_populates="service_record")
+
+class ProblemMessage(Base):
+    __tablename__ = "problems_messages"
+    id = Column(Integer, primary_key=True)
+    message = Column(String(1000))
+    is_admin = Column(Boolean, default=False)
+    date_created = Column(DateTime(timezone=True), server_default=func.now())
+
+    user_id = Column(Integer, ForeignKey("users.id"))
+    problem_id = Column(Integer, ForeignKey("problems.id"))
+
+    sender = relationship("User")
+    problem = relationship("Problem", back_populates="messages")

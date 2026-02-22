@@ -20,7 +20,7 @@
   --radius: 4px;
   --sidebar-w: 240px;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-mono);}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-mono);overflow-x: hidden;position: relative; -webkit-overflow-scrolling: touch;}
 #root{height:100%;}
 
 /* Scrollbar */

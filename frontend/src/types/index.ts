@@ -26,6 +26,14 @@ export interface ServiceRecord {
   problem_id: number
 }
 
+export interface Message {
+  id?: number
+  text: string
+  sender_id: number
+  is_admin: boolean
+  date_created?: string
+}
+
 export interface Problem {
   id: number
   title: string
@@ -37,6 +45,7 @@ export interface Problem {
   admin_id?: number
   response?: AdminResponse
   service_record?: ServiceRecord
+  messages?: Message[]
 }
 
 export interface Token {

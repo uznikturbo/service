@@ -207,8 +207,9 @@ npm run dev
 servicedesk/
 ├── backend/
 │   ├── tests/              # Тести
-│   │     ├── __init__.py
-│   │     └── tests.py
+│   │    ├── __init__.py
+│   │    └── tests.py
+│   ├── email_templates/    # Шаблони email повідомлень
 │   ├── main.py             # FastAPI app, всі ендпоінти
 │   ├── models.py           # SQLAlchemy моделі
 │   ├── schemas.py          # Pydantic схеми
@@ -218,7 +219,7 @@ servicedesk/
 │   ├── db.py               # Database підключення
 │   ├── redis_config.py     # Redis підключення
 │   ├── bot.py              # Telegram бот
-│   └── alembic/            # Міграції
+│   └── migrations/         # Міграції
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/          # Сторінки
