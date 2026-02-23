@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import string
@@ -19,6 +20,7 @@ from fastapi import (
     WebSocketException,
     status,
 )
+from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig
 from jose import JWTError, jwt
@@ -32,27 +34,46 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[int, List[WebSocket]] = {}
-    
-    def connect(self, websocket: WebSocket, problem_id: int):
-        if problem_id not in self.active_connections:
-            self.active_connections[problem_id] = []
-        self.active_connections[problem_id].append(websocket)
-    
-    def disconnect(self, websocket: WebSocket, problem_id: int):
-        if problem_id in self.active_connections:
-            if websocket in self.active_connections[problem_id]:
-                self.active_connections[problem_id].remove(websocket)
-            
-            if not self.active_connections[problem_id]:
-                del self.active_connections[problem_id]
+        self.admin_connections: List[WebSocket] = []
+        self.user_connections: Dict[int, List[WebSocket]] = {}
 
-    async def broadcast_to_problem(self, message: str, problem_id: int):
-        if problem_id in self.active_connections:
-            for connection in self.active_connections[problem_id][:]:
+    async def connect_global(self, websocket: WebSocket, user_id: int, is_admin: bool):
+        await websocket.accept()
+        if is_admin:
+            self.admin_connections.append(websocket)
+        else:
+            if user_id not in self.user_connections:
+                self.user_connections[user_id] = []
+            self.user_connections[user_id].append(websocket)
+
+    def disconnect_global(self, websocket: WebSocket, user_id: int, is_admin: bool):
+        if is_admin:
+            if websocket in self.admin_connections:
+                self.admin_connections.remove(websocket)
+        else:
+            if user_id in self.user_connections and websocket in self.user_connections[user_id]:
+                self.user_connections[user_id].remove(websocket)
+
+    async def broadcast_new_problem(self, problem_data: any):
+        payload = {
+            "type": "new_problem",
+            "data": jsonable_encoder(problem_data)
+        }
+        message = json.dumps(payload)
+
+        for connection in self.admin_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+        user_id = problem_data.user_id
+        if user_id in self.user_connections:
+            for connection in self.user_connections[user_id]:
                 try:
                     await connection.send_text(message)
-                except Exception:
-                    self.disconnect(connection, problem_id)
+                except:
+                    pass
 
 
 conf = ConnectionConfig(

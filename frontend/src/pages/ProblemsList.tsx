@@ -20,33 +20,35 @@ const FILTERS: { key: FilterType; label: string }[] = [
   { key: 'rejected', label: 'Відмовлено'},
 ]
 
+const RECONNECT_DELAY_MS = 3000
+const MAX_RECONNECT_ATTEMPTS = 5
+
 export function ProblemsList({ user, onSelect }: ProblemsListProps) {
   const [problems, setProblems] = useState<Problem[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [statusFilter, setStatusFilter] = useState<FilterType>('all')
 
-  // refs for sliding indicator
   const barRef = useRef<HTMLDivElement>(null)
   const btnRefs = useRef<Map<FilterType, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
 
-  const toast = useToast()
+  // Keep stable refs so the WS effect never needs to re-run due to these changing
+  const userRef = useRef(user)
+  useEffect(() => { userRef.current = user }, [user])
 
-  // Update indicator position — використовуємо offsetLeft/offsetWidth,
-  // бо вони відносні до батьківського елемента і не залежать від scroll/viewport
+  const toast = useToast()
+  const toastRef = useRef(toast)
+  useEffect(() => { toastRef.current = toast }, [toast])
+
   const recalcIndicator = useCallback(() => {
     const btn = btnRefs.current.get(statusFilter)
     if (!btn) return
-    setIndicatorStyle({
-      left: btn.offsetLeft,
-      width: btn.offsetWidth,
-    })
+    setIndicatorStyle({ left: btn.offsetLeft, width: btn.offsetWidth })
   }, [statusFilter])
 
   useEffect(() => { recalcIndicator() }, [recalcIndicator])
 
-  // Перераховуємо при resize через ResizeObserver (надійніше ніж window resize)
   useEffect(() => {
     const bar = barRef.current
     if (!bar) return
@@ -55,6 +57,119 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     return () => ro.disconnect()
   }, [recalcIndicator])
 
+  // --- WEBSOCKET LOGIC ---
+  useEffect(() => {
+    if(!user?.id) return;
+
+    let socket: WebSocket | null = null
+    let reconnectAttempts = 0
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let isMounted = true
+
+    function getToken(): string | null {
+      // Adjust this to wherever your app stores the JWT
+      return localStorage.getItem('token')
+    }
+
+    function connect() {
+      if (!isMounted) return
+
+      const token = getToken()
+      if (!token) {
+        console.warn('WS: no auth token, skipping connection')
+        return
+      }
+
+      const wsUrl = `ws://localhost:8000/ws/problems/notifications?token=${encodeURIComponent(token)}`
+
+      socket = new WebSocket(wsUrl)
+
+      socket.onopen = () => {
+        reconnectAttempts = 0
+      }
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data)
+          if (payload.type === 'new_problem') {
+            const newProblem: Problem = payload.data
+            const { id: userId, is_admin } = userRef.current
+            if (is_admin || newProblem.user_id === userId) {
+              setProblems((prev) => {
+                if (prev.find(p => p.id === newProblem.id)) return prev
+                return [newProblem, ...prev]
+              })
+              toastRef.current('З\'явилася нова заявка!', 'info')
+            }
+          }
+        } catch (err) {
+          console.error('WS parsing error:', err)
+        }
+      }
+
+      socket.onerror = (err) => {
+        console.error('WS error:', err)
+      }
+
+      socket.onclose = (event) => {
+        if (!isMounted) return
+        // 1008 = policy violation (server rejected — no point retrying)
+        if (event.code === 1008) {
+          console.warn('WS closed by server (policy violation), not reconnecting')
+          return
+        }
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          console.warn('WS max reconnect attempts reached')
+          return
+        }
+        reconnectAttempts++
+        const delay = RECONNECT_DELAY_MS * reconnectAttempts
+        console.info(`WS disconnected, reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
+        reconnectTimer = setTimeout(connect, delay)
+      }
+    }
+
+    connect()
+
+    return () => {
+      isMounted = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (socket) {
+        // Remove onclose so our cleanup doesn't trigger a reconnect
+        socket.onclose = null
+        socket.close()
+      }
+    }
+  }, [user?.id]);
+
+  // --- DATA LOADING ---
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await problemsApi.list()
+      setProblems(data)
+    } catch (e: any) {
+      toast(e.message || 'Помилка', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => { load() }, [load])
+
+  const handleDelete = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Видалити заявку?')) return
+    try {
+      await problemsApi.delete(id)
+      setProblems(prev => prev.filter(p => p.id !== id))
+      toast('Заявку видалено', 'success')
+    } catch (e: any) {
+      toast(e.message || 'Помилка', 'error')
+    }
+  }
+
+  // --- MEMOIZED DATA ---
   const sortedProblems = useMemo(() => {
     return [...problems].sort((a, b) => {
       const getPriority = (status: string) => {
@@ -81,36 +196,9 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     })
   }, [sortedProblems, statusFilter])
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const data = await problemsApi.list()
-      setProblems(data)
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Помилка', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const handleDelete = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm('Видалити заявку?')) return
-    try {
-      await problemsApi.delete(id)
-      toast('Заявку видалено', 'success')
-      load()
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Помилка', 'error')
-    }
-  }
-
-  // Counts (always from full list)
   const counts: Record<FilterType, number> = useMemo(() => ({
     all:      problems.length,
-    pending:  problems.filter(p => { const s = p.status.trim().toLowerCase(); return s === 'в обробці' || s === 'новий' }).length,
+    pending:  problems.filter(p => ['в обробці', 'новий'].includes(p.status.trim().toLowerCase())).length,
     inWork:   problems.filter(p => p.status.trim().toLowerCase() === 'в роботі').length,
     done:     problems.filter(p => p.status.trim().toLowerCase() === 'виконано').length,
     rejected: problems.filter(p => p.status.trim().toLowerCase() === 'відмовлено').length,
@@ -118,145 +206,67 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
 
   return (
     <div className="animate-fadeUp">
-
-      {/* ── Animated filter bar ── */}
-      <div
-        className="filter-bar"
-        ref={barRef}
-        style={{ position: 'relative' }}
-      >
-        {/* Sliding highlight */}
-        <span
-          aria-hidden
-          className="filter-bar-indicator"
-          style={{
-            left: indicatorStyle.left,
-            width: indicatorStyle.width,
-          }}
-        />
-
+      <div className="filter-bar" ref={barRef} style={{ position: 'relative' }}>
+        <span className="filter-bar-indicator" style={{ left: indicatorStyle.left, width: indicatorStyle.width }} />
         {FILTERS.map(({ key, label }) => (
           <button
             key={key}
-            data-filter={key}
             className={`filter-btn${statusFilter === key ? ' active' : ''}`}
             ref={el => { if (el) btnRefs.current.set(key, el) }}
             onClick={() => setStatusFilter(key)}
           >
             {key !== 'all' && <span className="filter-dot" />}
-            {label}
-            <span className="filter-btn-count">{counts[key]}</span>
+            {label} <span className="filter-btn-count">{counts[key]}</span>
           </button>
         ))}
       </div>
 
-      {/* ── Table card ── */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">
-            Заявки{statusFilter !== 'all' && (
-              <span style={{ fontSize: 11, opacity: 0.45, fontWeight: 400, marginLeft: 6 }}>
-                / {FILTERS.find(f => f.key === statusFilter)?.label}
-              </span>
-            )}
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
-            + Нова заявка
-          </button>
+          <div className="card-title">Заявки</div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>+ Нова заявка</button>
         </div>
 
-        {loading ? (
-          <LoadingScreen />
-        ) : displayedProblems.length === 0 ? (
-          <EmptyState
-            title="Заявок немає"
-            subtitle={
-              statusFilter !== 'all'
-                ? 'Немає заявок з таким статусом'
-                : 'Натисніть "+ Нова заявка" щоб подати першу заявку до служби підтримки'
-            }
-          />
+        {loading ? <LoadingScreen /> : displayedProblems.length === 0 ? (
+          <EmptyState title="Заявок немає" subtitle="Список порожній" />
         ) : (
-          <>
-            {/* Desktop table */}
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#ID</th>
-                    <th>Назва</th>
-                    <th>Статус</th>
-                    {user.is_admin && <th>Користувач</th>}
-                    <th>Дата</th>
-                    <th></th>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#ID</th>
+                  <th>Назва</th>
+                  <th>Статус</th>
+                  <th>Дата</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedProblems.map(p => (
+                  <tr key={p.id} className="animate-fadeIn" style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
+                    <td className="td-mono">#{String(p.id).padStart(4, '0')}</td>
+                    <td className="td-primary">{p.title}</td>
+                    <td><StatusBadge status={p.status} /></td>
+                    <td className="td-mono" style={{ fontSize: 10 }}>{fmtDate(p.date_created)}</td>
+                    <td>
+                      <button className="btn btn-danger btn-sm" onClick={e => handleDelete(p.id, e)}>✕</button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {displayedProblems.map(p => (
-                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
-                      <td className="td-mono" style={{ color: 'var(--accent)', opacity: 0.7 }}>
-                        #{String(p.id).padStart(4, '0')}
-                      </td>
-                      <td className="td-primary">{p.title}</td>
-                      <td><StatusBadge status={p.status} /></td>
-                      {user.is_admin && (
-                        <td className="td-mono" style={{ fontSize: 10 }}>uid:{p.user_id}</td>
-                      )}
-                      <td className="td-mono" style={{ fontSize: 10, color: 'var(--text3)' }}>
-                        {fmtDate(p.date_created)}
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={e => handleDelete(p.id, e)}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <div className="mobile-problem-list">
-              {displayedProblems.map(p => (
-                <div
-                  key={p.id}
-                  className="mobile-problem-card"
-                  onClick={() => onSelect(p)}
-                >
-                  <div className="mobile-problem-card-row">
-                    <span className="mobile-problem-title">{p.title}</span>
-                    <StatusBadge status={p.status} />
-                  </div>
-                  <div className="mobile-problem-card-row">
-                    <div className="mobile-problem-meta">
-                      <span style={{ color: 'var(--accent)', opacity: 0.7 }}>
-                        #{String(p.id).padStart(4, '0')}
-                      </span>
-                      {user.is_admin && <span>uid:{p.user_id}</span>}
-                      <span>{fmtDate(p.date_created)}</span>
-                    </div>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={e => handleDelete(p.id, e)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {showCreate && (
         <CreateProblemModal
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); load() }}
+          onCreated={() => {
+            setShowCreate(false);
+            load();
+          }}
+
         />
       )}
     </div>

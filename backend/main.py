@@ -222,10 +222,10 @@ async def refresh_access_token(data: schemas.RefreshTokenRequest, db: AsyncSessi
 
 # =========== PROBLEM ENDPOINTS =============
 
-@app.post("/problems", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(3, Duration.MINUTE))))])
+@app.post("/problems", response_model=schemas.ProblemRead)
 async def create_problem(
-    title: str = Form(..., max_length=250),
-    description: str = Form(..., max_length=1000),
+    title: str = Form(...),
+    description: str = Form(...),
     image: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db), 
     current_user: User = Depends(get_verified_user), 
@@ -233,8 +233,12 @@ async def create_problem(
 ):  
     problem_data = schemas.ProblemCreate(title=title, description=description)
     new_problem = await crud.create_problem(db, problem_data, image, current_user.id)
+    
     await redis.delete(problems_list_key(current_user.id, False))
     await redis.delete(problems_list_key(0, True))
+
+    await manager.broadcast_new_problem(new_problem)
+    
     return new_problem
 
 @app.get("/problems", response_model=List[schemas.ProblemListRead])
@@ -287,6 +291,126 @@ async def get_problem(
     serialized = jsonable_encoder(problem)
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
+
+@app.delete("/problems/{id}")
+async def delete_problem(
+    id: int, 
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_verified_user), 
+    redis = Depends(get_redis)
+):
+    problem = await crud.get_problem(db, id)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    if not current_user.is_admin and problem.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    await redis.delete(problems_list_key(problem.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    await redis.delete(f"problem:{id}")
+
+    return await crud.delete_problem(db, id)
+
+# ========= ADMIN ENDPOINTS =========
+
+@app.patch("/problems/{id}/status", response_model=schemas.ProblemRead)
+async def change_problem_status(
+    id: int, 
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db), 
+    admin: User = Depends(get_current_admin),
+    status_update: schemas.ProblemUpdateStatus = Body(...), 
+    redis = Depends(get_redis)
+):
+    updated = await crud.update_problem_status(db, id, status_update)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Problem not found")
+
+    if status_update.status == "відмовлено":
+        body = render("ticket_rejected", username=updated.user.username, problem_id=updated.id)
+        message = MessageSchema(
+        subject=f"Заявка №{updated.id} відмовлена🙁",
+        recipients=[updated.user.email],
+        body=body,
+        subtype=MessageType.html
+        )
+
+        tg_message = f"❌ Ваша заявка №{updated.id} відмовлена🙁"
+
+        fm = FastMail(conf)
+
+        background_tasks.add_task(fm.send_message, message)
+
+        if updated.user.telegram_id:
+            background_tasks.add_task(send_tg_message, updated.user.telegram_id, tg_message)
+
+    await redis.delete(f"problem:{id}")
+    await redis.delete(problems_list_key(updated.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    
+    await manager.broadcast_new_problem(updated)
+    
+    return updated
+
+@app.post("/service-record", response_model=schemas.ServiceRecordRead)
+async def create_service_record(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db), 
+    admin: User = Depends(get_current_admin), 
+    record: schemas.ServiceRecordCreate = Body(...),
+    redis = Depends(get_redis)
+):
+    new_service_record = await crud.create_service_record(db, record)
+
+    body = render("service_record", username=new_service_record.user.username, problem_id=new_service_record.problem_id, work_done=new_service_record.work_done, used_parts=new_service_record.used_parts, warranty_info=new_service_record.warranty_info)
+    message = MessageSchema(
+    subject=f"Заявка №{new_service_record.problem_id} виконана!",
+    recipients=[new_service_record.user.email],
+    body=body,
+    subtype=MessageType.html
+    )
+
+    fm = FastMail(conf)
+    background_tasks.add_task(fm.send_message, message)
+
+    if new_service_record.user.telegram_id:
+        tg_text = f"✅ Ваша заявка №{new_service_record.problem_id} виконана!\nІнформація: {new_service_record.work_done}"
+        background_tasks.add_task(send_tg_message, new_service_record.user.telegram_id, tg_text)
+
+
+    await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    await redis.delete(f"problem:{new_service_record.problem_id}")
+
+    return new_service_record
+
+
+@app.patch("/problems/{id}/assign")
+async def assign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), redis = Depends(get_redis)):
+    new_assign = await crud.assign_admin(db, id, admin.id)
+    if not new_assign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+
+    await redis.delete(problems_list_key(new_assign.user_id, False))
+    await redis.delete(problems_list_key(0, True))
+    await redis.delete(f"problem:{id}")
+
+    return new_assign
+
+# ========= WEBSOCKETS ============
+
+@app.websocket("/ws/problems/notifications")
+async def problems_notifications(
+    websocket: WebSocket, 
+    current_user = Depends(get_current_user_ws)
+):
+    await manager.connect_global(websocket, current_user.id, current_user.is_admin)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect_global(websocket, current_user.id, current_user.is_admin)
 
 
 @app.websocket("/ws/problems/{id}/chat")
@@ -351,108 +475,3 @@ async def problem_chat(
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, id)
-
-
-@app.delete("/problems/{id}")
-async def delete_problem(
-    id: int, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_verified_user), 
-    redis = Depends(get_redis)
-):
-    problem = await crud.get_problem(db, id)
-    if not problem:
-        raise HTTPException(status_code=404, detail="Problem not found")
-    
-    if not current_user.is_admin and problem.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    await redis.delete(problems_list_key(problem.user_id, False))
-    await redis.delete(problems_list_key(0, True))
-    await redis.delete(f"problem:{id}")
-
-    return await crud.delete_problem(db, id)
-
-# ========= ADMIN ENDPOINTS =========
-
-@app.patch("/problems/{id}/status", response_model=schemas.ProblemRead)
-async def change_problem_status(
-    id: int, 
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db), 
-    admin: User = Depends(get_current_admin),
-    status_update: schemas.ProblemUpdateStatus = Body(...), 
-    redis = Depends(get_redis)
-):
-    updated = await crud.update_problem_status(db, id, status_update)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Problem not found")
-
-    if status_update.status == "відмовлено":
-        body = render("ticket_rejected", username=updated.user.username, problem_id=updated.id)
-        message = MessageSchema(
-        subject=f"Заявка №{updated.id} відмовлена🙁",
-        recipients=[updated.user.email],
-        body=body,
-        subtype=MessageType.html
-        )
-
-        tg_message = f"❌ Ваша заявка №{updated.id} відмовлена🙁"
-
-        fm = FastMail(conf)
-
-        background_tasks.add_task(fm.send_message, message)
-
-        if updated.user.telegram_id:
-            background_tasks.add_task(send_tg_message, updated.user.telegram_id, tg_message)
-
-    await redis.delete(f"problem:{id}")
-    await redis.delete(problems_list_key(updated.user_id, False))
-    await redis.delete(problems_list_key(0, True))
-    
-    return updated
-
-@app.post("/service-record", response_model=schemas.ServiceRecordRead)
-async def create_service_record(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db), 
-    admin: User = Depends(get_current_admin), 
-    record: schemas.ServiceRecordCreate = Body(...),
-    redis = Depends(get_redis)
-):
-    new_service_record = await crud.create_service_record(db, record)
-
-    body = render("service_record", username=new_service_record.user.username, problem_id=new_service_record.problem_id, work_done=new_service_record.work_done, used_parts=new_service_record.used_parts, warranty_info=new_service_record.warranty_info)
-    message = MessageSchema(
-    subject=f"Заявка №{new_service_record.problem_id} виконана!",
-    recipients=[new_service_record.user.email],
-    body=body,
-    subtype=MessageType.html
-    )
-
-    fm = FastMail(conf)
-    background_tasks.add_task(fm.send_message, message)
-
-    if new_service_record.user.telegram_id:
-        tg_text = f"✅ Ваша заявка №{new_service_record.problem_id} виконана!\nІнформація: {new_service_record.work_done}"
-        background_tasks.add_task(send_tg_message, new_service_record.user.telegram_id, tg_text)
-
-
-    await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
-    await redis.delete(problems_list_key(0, True))
-    await redis.delete(f"problem:{new_service_record.problem_id}")
-
-    return new_service_record
-
-
-@app.patch("/problems/{id}/assign")
-async def assign_admin(id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin), redis = Depends(get_redis)):
-    new_assign = await crud.assign_admin(db, id, admin.id)
-    if not new_assign:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
-
-    await redis.delete(problems_list_key(new_assign.user_id, False))
-    await redis.delete(problems_list_key(0, True))
-    await redis.delete(f"problem:{id}")
-
-    return new_assign
