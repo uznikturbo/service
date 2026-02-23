@@ -21,7 +21,9 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
   const [messages, setMessages] = useState<any[]>(initialProblem.messages || [])
   const [newMessage, setNewMessage] = useState('')
   const [ws, setWs] = useState<WebSocket | null>(null)
+  const [isTyping, setIsTyping] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleUpdate = (data: Problem) => {
     setProblem(data)
@@ -38,13 +40,11 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
     }
   }
 
-  // 1. ПІДТЯГУЄМО СВІЖІ ДАНІ ПРИ ВІДКРИТТІ АБО ПІСЛЯ F5
   useEffect(() => {
     refresh()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [problem.id])
 
-  // --- WebSocket Логіка ---
   useEffect(() => {
     const isCreator = user.id === problem.user_id;
     const isAssignedAdmin = user.is_admin && problem.admin_id === user.id;
@@ -54,11 +54,7 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    // Автоматично адаптуємо протокол (ws:// для http, wss:// для https)
-    const wsProtocol = API_BASE.startsWith('https') ? 'wss' : 'ws';
-    const wsBaseUrl = API_BASE.replace(/^https?/, wsProtocol);
-    const wsUrl = `${wsBaseUrl}/ws/problems/${problem.id}/chat?token=${token}`;
-    
+    const wsUrl = `ws://localhost:8000/ws/problems/${problem.id}/chat?token=${token}`;
     const socket = new WebSocket(wsUrl);
 
     socket.onmessage = (event) => {
@@ -79,7 +75,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
     };
   }, [problem.id, problem.admin_id, problem.user_id, user.id, user.is_admin, toast]);
 
-  // Автоскрол до останнього повідомлення
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -87,11 +82,9 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ws || ws.readyState !== WebSocket.OPEN || !newMessage.trim()) return;
-
     ws.send(JSON.stringify({ message: newMessage }));
     setNewMessage('');
   };
-  // ------------------------
 
   const assign = async () => {
     setLoading(true)
@@ -120,8 +113,6 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
   }
 
   const isClosed = ['виконано', 'відмовлено'].includes(problem.status)
-
-  // Перевірка чи може поточний юзер бачити чат
   const canSeeChat = problem.admin_id && (user.id === problem.user_id || (user.is_admin && problem.admin_id === user.id));
 
   return (
@@ -159,20 +150,14 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
                 <div className="detail-field">
                   <div className="detail-field-label">Зображення</div>
                   <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center', backgroundColor: 'var(--bg2)', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <img 
-                      src={problem.image_url.startsWith('http') ? problem.image_url : `${API_BASE}/${problem.image_url.replace(/^\//, '')}`} 
-                      alt="Додаток до заявки" 
-                      style={{ 
-                        maxWidth: '100%', 
-                        maxHeight: '400px',
-                        objectFit: 'contain', 
-                        borderRadius: '4px' 
-                      }} 
+                    <img
+                      src={problem.image_url.startsWith('http') ? problem.image_url : `${API_BASE}/${problem.image_url.replace(/^\//, '')}`}
+                      alt="Додаток до заявки"
+                      style={{ maxWidth: '100%', maxHeight: '400px', objectFit: 'contain', borderRadius: '4px' }}
                     />
                   </div>
                 </div>
               )}
-
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 16 }}>
                 <div className="detail-field" style={{ margin: 0 }}>
                   <div className="detail-field-label">Дата подачі</div>
@@ -186,64 +171,281 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
             </div>
           </div>
 
-          {/* Чат */}
+          {/* ═══════════════════════════════════════════════════════ */}
+          {/*                    КРАСИВИЙ ЧАТ                        */}
+          {/* ═══════════════════════════════════════════════════════ */}
           {canSeeChat ? (
-            <div className="panel-section">
-              <div className="panel-section-title">Чат по заявці</div>
-              <div className="panel-section-body" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
-                
-                {/* Список повідомлень */}
-                <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
-                  {messages.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 12, margin: 'auto' }}>
-                      Повідомлень поки немає. Напишіть першим!
-                    </div>
-                  ) : (
-                    messages.map((msg, idx) => {
-                      const isMe = msg.user_id === user.id;
-                      return (
-                        <div key={idx} style={{
-                          alignSelf: isMe ? 'flex-end' : 'flex-start',
-                          backgroundColor: isMe ? 'var(--accent)' : 'var(--bg2)',
-                          color: isMe ? '#fff' : 'var(--text1)',
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          maxWidth: '80%',
-                          fontSize: 13
-                        }}>
-                          <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 4 }}>
+            <div style={{
+              borderRadius: 16,
+              overflow: 'hidden',
+              border: '1px solid var(--border)',
+              background: 'var(--bg1)',
+              boxShadow: '0 4px 32px rgba(0,0,0,0.12)',
+            }}>
+
+              {/* Chat Header */}
+              <div style={{
+                padding: '14px 18px',
+                borderBottom: '1px solid var(--border)',
+                background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--bg1)), color-mix(in srgb, var(--accent) 4%, var(--bg1)))',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                {/* Animated status dot */}
+                <div style={{ position: 'relative', width: 10, height: 10 }}>
+                  <div style={{
+                    width: 10, height: 10,
+                    borderRadius: '50%',
+                    background: ws && ws.readyState === WebSocket.OPEN ? '#22c55e' : 'var(--text3)',
+                    boxShadow: ws && ws.readyState === WebSocket.OPEN ? '0 0 0 0 rgba(34,197,94,0.4)' : 'none',
+                    animation: ws && ws.readyState === WebSocket.OPEN ? 'chatPulse 2s ease-out infinite' : 'none',
+                  }} />
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text1)', letterSpacing: 0.3 }}>
+                  Чат по заявці
+                </span>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: 11,
+                  color: 'var(--text3)',
+                  background: 'var(--bg2)',
+                  padding: '2px 8px',
+                  borderRadius: 20,
+                  border: '1px solid var(--border)',
+                }}>
+                  {messages.length} повідомлень
+                </span>
+              </div>
+
+              {/* Messages area */}
+              <div style={{
+                height: 340,
+                overflowY: 'auto',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                background: 'linear-gradient(180deg, var(--bg1) 0%, color-mix(in srgb, var(--bg2) 40%, var(--bg1)) 100%)',
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'var(--border) transparent',
+              }}>
+                {messages.length === 0 ? (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    gap: 10,
+                    color: 'var(--text3)',
+                  }}>
+                    <div style={{ fontSize: 32, opacity: 0.4 }}>💬</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Повідомлень поки немає</div>
+                    <div style={{ fontSize: 11, opacity: 0.5 }}>Напишіть першим!</div>
+                  </div>
+                ) : (
+                  messages.map((msg, idx) => {
+                    const isMe = msg.user_id === user.id;
+                    const prevMsg = messages[idx - 1];
+                    const isSameAuthor = prevMsg && prevMsg.user_id === msg.user_id;
+
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: isMe ? 'flex-end' : 'flex-start',
+                          marginTop: isSameAuthor ? 2 : 8,
+                          animation: 'msgSlideIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+                          animationDelay: `${Math.min(idx * 0.03, 0.3)}s`,
+                        }}
+                      >
+                        {/* Author label — only show if first in a group */}
+                        {!isSameAuthor && (
+                          <div style={{
+                            fontSize: 10,
+                            color: 'var(--text3)',
+                            marginBottom: 4,
+                            paddingLeft: isMe ? 0 : 4,
+                            paddingRight: isMe ? 4 : 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}>
+                            <span style={{
+                              width: 16, height: 16,
+                              borderRadius: '50%',
+                              background: isMe
+                                ? 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #fff))'
+                                : 'var(--bg3, var(--bg2))',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 8,
+                              color: isMe ? '#fff' : 'var(--text2)',
+                              border: '1px solid var(--border)',
+                              flexShrink: 0,
+                            }}>
+                              {msg.is_admin ? '◆' : '●'}
+                            </span>
                             {msg.is_admin ? 'Адміністратор' : 'Користувач'}
                           </div>
+                        )}
+
+                        {/* Bubble */}
+                        <div style={{
+                          position: 'relative',
+                          padding: '9px 14px',
+                          borderRadius: isMe
+                            ? (isSameAuthor ? '14px 4px 4px 14px' : '14px 4px 14px 14px')
+                            : (isSameAuthor ? '4px 14px 14px 4px' : '4px 14px 14px 14px'),
+                          maxWidth: '75%',
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          wordBreak: 'break-word',
+                          background: isMe
+                            ? 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 85%, #000))'
+                            : 'var(--bg2)',
+                          color: isMe ? '#fff' : 'var(--text1)',
+                          border: isMe ? 'none' : '1px solid var(--border)',
+                          boxShadow: isMe
+                            ? '0 2px 12px color-mix(in srgb, var(--accent) 35%, transparent)'
+                            : '0 1px 4px rgba(0,0,0,0.08)',
+                          transition: 'transform 0.1s ease',
+                        }}
+                          onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.01)')}
+                          onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                        >
                           {msg.message}
                         </div>
-                      )
-                    })
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
 
-                {/* Поле вводу */}
-                {!isClosed && (
-                  <form onSubmit={sendMessage} style={{ display: 'flex', gap: 8 }}>
-                    <input
-                      type="text"
-                      className="input"
-                      style={{ flex: 1 }}
-                      placeholder="Написати повідомлення..."
-                      value={newMessage}
-                      onChange={e => setNewMessage(e.target.value)}
-                    />
-                    <button type="submit" className="btn btn-primary" disabled={!newMessage.trim() || !ws || ws.readyState !== WebSocket.OPEN}>
+                        {/* Timestamp */}
+                        {msg.created_at && (
+                          <div style={{
+                            fontSize: 9,
+                            color: 'var(--text3)',
+                            marginTop: 3,
+                            paddingLeft: isMe ? 0 : 4,
+                            paddingRight: isMe ? 4 : 0,
+                            opacity: 0.6,
+                          }}>
+                            {new Date(msg.created_at).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Input area */}
+              {!isClosed ? (
+                <div style={{
+                  padding: '12px 14px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--bg1)',
+                }}>
+                  <form onSubmit={sendMessage} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{
+                      flex: 1,
+                      position: 'relative',
+                      borderRadius: 12,
+                      border: `1px solid ${isTyping ? 'var(--accent)' : 'var(--border)'}`,
+                      background: 'var(--bg2)',
+                      transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+                      boxShadow: isTyping ? '0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent)' : 'none',
+                    }}>
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        style={{
+                          width: '100%',
+                          border: 'none',
+                          outline: 'none',
+                          background: 'transparent',
+                          padding: '10px 14px',
+                          fontSize: 13,
+                          color: 'var(--text1)',
+                          borderRadius: 12,
+                          boxSizing: 'border-box',
+                        }}
+                        placeholder="Написати повідомлення..."
+                        value={newMessage}
+                        onChange={e => setNewMessage(e.target.value)}
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
+                        disabled={!ws || ws.readyState !== WebSocket.OPEN}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!newMessage.trim() || !ws || ws.readyState !== WebSocket.OPEN}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        border: `1px solid ${newMessage.trim() && ws && ws.readyState === WebSocket.OPEN ? 'transparent' : 'var(--border)'}`,
+                        cursor: newMessage.trim() && ws && ws.readyState === WebSocket.OPEN ? 'pointer' : 'not-allowed',
+                        background: newMessage.trim() && ws && ws.readyState === WebSocket.OPEN
+                          ? 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #000))'
+                          : 'var(--bg2)',
+                        color: newMessage.trim() && ws && ws.readyState === WebSocket.OPEN ? '#fff' : 'var(--text3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 16,
+                        flexShrink: 0,
+                        transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                        transform: newMessage.trim() ? 'scale(1.05)' : 'scale(1)',
+                        boxShadow: newMessage.trim() ? '0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent)' : 'none',
+                      }}
+                      onMouseEnter={e => { if (newMessage.trim()) e.currentTarget.style.transform = 'scale(1.12) rotate(-5deg)' }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = newMessage.trim() ? 'scale(1.05)' : 'scale(1)' }}
+                    >
                       ➤
                     </button>
                   </form>
-                )}
-                {isClosed && (
-                  <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text3)', padding: 8 }}>
-                    Заявку закрито. Чат доступний лише для читання.
-                  </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: '12px 18px',
+                  borderTop: '1px solid var(--border)',
+                  textAlign: 'center',
+                  fontSize: 11,
+                  color: 'var(--text3)',
+                  background: 'var(--bg1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}>
+                  <span style={{ opacity: 0.5 }}>🔒</span>
+                  Заявку закрито — чат тільки для читання
+                </div>
+              )}
+
+              {/* CSS animations via style tag trick */}
+              <style>{`
+                @keyframes chatPulse {
+                  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+                  70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+                  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+                }
+                @keyframes msgSlideIn {
+                  from {
+                    opacity: 0;
+                    transform: translateY(8px) scale(0.97);
+                  }
+                  to {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                  }
+                }
+              `}</style>
             </div>
           ) : (
             !problem.admin_id && (
@@ -284,20 +486,18 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
                 <div className="card-title">Дії адміна</div>
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                
                 {!problem.admin_id && (
                   <button className="btn btn-primary" style={{ width: '100%' }} onClick={assign} disabled={loading}>
                     ◆ Прийняти заявку
                   </button>
                 )}
-
                 {!isClosed && problem.admin_id === user.id && (
                   <>
-                      {problem.admin_id === user.id && !problem.service_record && (
-                        <button className="btn btn-ghost" style={{ width: '100%', color: 'var(--green)' }} onClick={() => setShowRecord(true)}>
-                          ◫ Сервісний запис
-                        </button>
-                      )}
+                    {problem.admin_id === user.id && !problem.service_record && (
+                      <button className="btn btn-ghost" style={{ width: '100%', color: 'var(--green)' }} onClick={() => setShowRecord(true)}>
+                        ◫ Сервісний запис
+                      </button>
+                    )}
                     <button
                       className="btn btn-danger"
                       style={{ width: '100%' }}
@@ -308,12 +508,10 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
                     </button>
                   </>
                 )}
-                
               </div>
             </div>
           )}
 
-          {/* Metadata Sidebar Section */}
           <div className="panel-section">
             <div className="panel-section-title">Інформація</div>
             <div className="panel-section-body">

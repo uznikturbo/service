@@ -33,7 +33,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
   const btnRefs = useRef<Map<FilterType, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
 
-  // Keep stable refs so the WS effect never needs to re-run due to these changing
   const userRef = useRef(user)
   useEffect(() => { userRef.current = user }, [user])
 
@@ -47,7 +46,10 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     setIndicatorStyle({ left: btn.offsetLeft, width: btn.offsetWidth })
   }, [statusFilter])
 
-  useEffect(() => { recalcIndicator() }, [recalcIndicator])
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => recalcIndicator())
+    return () => cancelAnimationFrame(raf)
+  }, [recalcIndicator])
 
   useEffect(() => {
     const bar = barRef.current
@@ -57,7 +59,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     return () => ro.disconnect()
   }, [recalcIndicator])
 
-  // --- WEBSOCKET LOGIC ---
   useEffect(() => {
     if(!user?.id) return;
 
@@ -67,7 +68,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     let isMounted = true
 
     function getToken(): string | null {
-      // Adjust this to wherever your app stores the JWT
       return localStorage.getItem('token')
     }
 
@@ -102,6 +102,19 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
               toastRef.current('З\'явилася нова заявка!', 'info')
             }
           }
+
+          if (payload.type === "update_problem") {
+            const updatedProblem: Problem  = payload.data;
+            const { id: userId, is_admin } = userRef.current;
+
+            if  (is_admin || updatedProblem.user_id === userId) {
+                setProblems((prev) => 
+                prev.map((p) => (p.id === updatedProblem.id ?   updatedProblem : p))
+              );
+
+              toastRef.current(`Статус заявки #${updatedProblem.id} оновлено: ${updatedProblem.status}`, 'info')
+            }
+          }
         } catch (err) {
           console.error('WS parsing error:', err)
         }
@@ -113,7 +126,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
 
       socket.onclose = (event) => {
         if (!isMounted) return
-        // 1008 = policy violation (server rejected — no point retrying)
         if (event.code === 1008) {
           console.warn('WS closed by server (policy violation), not reconnecting')
           return
@@ -135,14 +147,12 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
       isMounted = false
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (socket) {
-        // Remove onclose so our cleanup doesn't trigger a reconnect
         socket.onclose = null
         socket.close()
       }
     }
   }, [user?.id]);
 
-  // --- DATA LOADING ---
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -169,7 +179,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
     }
   }
 
-  // --- MEMOIZED DATA ---
   const sortedProblems = useMemo(() => {
     return [...problems].sort((a, b) => {
       const getPriority = (status: string) => {
@@ -230,32 +239,59 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
         {loading ? <LoadingScreen /> : displayedProblems.length === 0 ? (
           <EmptyState title="Заявок немає" subtitle="Список порожній" />
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#ID</th>
-                  <th>Назва</th>
-                  <th>Статус</th>
-                  <th>Дата</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedProblems.map(p => (
-                  <tr key={p.id} className="animate-fadeIn" style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
-                    <td className="td-mono">#{String(p.id).padStart(4, '0')}</td>
-                    <td className="td-primary">{p.title}</td>
-                    <td><StatusBadge status={p.status} /></td>
-                    <td className="td-mono" style={{ fontSize: 10 }}>{fmtDate(p.date_created)}</td>
-                    <td>
-                      <button className="btn btn-danger btn-sm" onClick={e => handleDelete(p.id, e)}>✕</button>
-                    </td>
+          <>
+            {/* Desktop table */}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#ID</th>
+                    <th>Назва</th>
+                    <th>Статус</th>
+                    <th>Дата</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {displayedProblems.map(p => (
+                    <tr key={p.id} className="animate-fadeIn" style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}>
+                      <td className="td-mono">#{String(p.id).padStart(4, '0')}</td>
+                      <td className="td-primary">{p.title}</td>
+                      <td><StatusBadge status={p.status} /></td>
+                      <td className="td-mono" style={{ fontSize: 10 }}>{fmtDate(p.date_created)}</td>
+                      <td>
+                        <button className="btn btn-danger btn-sm" onClick={e => handleDelete(p.id, e)}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="mobile-problem-list">
+              {displayedProblems.map(p => (
+                <div key={p.id} className="mobile-problem-card animate-fadeIn" onClick={() => onSelect(p)}>
+                  <div className="mobile-problem-card-row">
+                    <span className="mobile-problem-title">{p.title}</span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div className="mobile-problem-meta">
+                    <span style={{ color: 'var(--accent)' }}>#{String(p.id).padStart(4, '0')}</span>
+                    <span>·</span>
+                    <span>{fmtDate(p.date_created)}</span>
+                    <span style={{ marginLeft: 'auto' }}>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        style={{ padding: '3px 8px', fontSize: 9 }}
+                        onClick={e => handleDelete(p.id, e)}
+                      >✕</button>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -266,7 +302,6 @@ export function ProblemsList({ user, onSelect }: ProblemsListProps) {
             setShowCreate(false);
             load();
           }}
-
         />
       )}
     </div>

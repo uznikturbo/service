@@ -349,8 +349,8 @@ async def change_problem_status(
     await redis.delete(problems_list_key(updated.user_id, False))
     await redis.delete(problems_list_key(0, True))
     
-    await manager.broadcast_new_problem(updated)
-    
+    await manager.broadcast_problem_update(updated)
+
     return updated
 
 @app.post("/service-record", response_model=schemas.ServiceRecordRead)
@@ -362,6 +362,9 @@ async def create_service_record(
     redis = Depends(get_redis)
 ):
     new_service_record = await crud.create_service_record(db, record)
+    problem = await crud.get_problem(db, new_service_record.problem_id)
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="problem not found")
 
     body = render("service_record", username=new_service_record.user.username, problem_id=new_service_record.problem_id, work_done=new_service_record.work_done, used_parts=new_service_record.used_parts, warranty_info=new_service_record.warranty_info)
     message = MessageSchema(
@@ -382,6 +385,8 @@ async def create_service_record(
     await redis.delete(problems_list_key(new_service_record.problem.user_id, False))
     await redis.delete(problems_list_key(0, True))
     await redis.delete(f"problem:{new_service_record.problem_id}")
+
+    await manager.broadcast_problem_update(problem)
 
     return new_service_record
 
@@ -436,7 +441,7 @@ async def problem_chat(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    manager.connect(websocket, id)
+    manager.chat_connect(websocket, id)
 
     try:
         while True:
@@ -474,4 +479,4 @@ async def problem_chat(
                 await manager.broadcast_to_problem(json.dumps(response_payload), id)
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket, id)
+        manager.chat_disconnect(websocket, id)

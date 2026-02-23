@@ -36,6 +36,33 @@ class ConnectionManager:
         self.active_connections: Dict[int, List[WebSocket]] = {}
         self.admin_connections: List[WebSocket] = []
         self.user_connections: Dict[int, List[WebSocket]] = {}
+    
+    # CHAT FUNCS
+
+    def chat_connect(self, websocket: WebSocket, problem_id: int):
+        if problem_id not in self.active_connections:
+            self.active_connections[problem_id] = []
+        
+        self.active_connections[problem_id].append(websocket)
+
+    def chat_disconnect(self, websocket: WebSocket, problem_id: int):
+        if problem_id in self.active_connections:
+                if websocket in self.active_connections[problem_id]:
+                    self.active_connections[problem_id].remove(websocket)
+
+                if not self.active_connections[problem_id]:
+                    del self.active_connections[problem_id]
+
+    async def broadcast_to_problem(self, message: str, problem_id: int):
+        if problem_id in self.active_connections:
+            for connection in self.active_connections[problem_id][:]:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    self.chat_connect(connection, problem_id)
+
+
+    # PROBLEM LIST FUNCS
 
     async def connect_global(self, websocket: WebSocket, user_id: int, is_admin: bool):
         await websocket.accept()
@@ -75,6 +102,26 @@ class ConnectionManager:
                 except:
                     pass
 
+    async def broadcast_problem_update(self, problem_data: any):
+            payload = {
+                "type": "update_problem",
+                "data": jsonable_encoder(problem_data)
+            }
+            message = json.dumps(payload)
+
+            for connection in self.admin_connections:
+                try:
+                    await connection.send_text(message)
+                except:
+                    pass
+            
+            user_id = problem_data.user_id
+            if user_id in self.user_connections:
+                for connection in self.user_connections[user_id]:
+                    try:
+                        await connection.send_text(message)
+                    except:
+                        pass
 
 conf = ConnectionConfig(
     MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
