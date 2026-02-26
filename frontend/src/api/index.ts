@@ -14,6 +14,7 @@ const TOKEN_KEY = 'token'
 const REFRESH_TOKEN_KEY = 'sd_refresh_token'
 
 export const apiClient = {
+  // TODO: SAVE TOKEN VIA HTTP-ONLY COOKIES
   token: localStorage.getItem(TOKEN_KEY) || '',
   refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || '',
   isRefreshing: false,

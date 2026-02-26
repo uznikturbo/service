@@ -224,14 +224,12 @@ async def refresh_access_token(data: schemas.RefreshTokenRequest, db: AsyncSessi
 
 @app.post("/problems", response_model=schemas.ProblemRead)
 async def create_problem(
-    title: str = Form(...),
-    description: str = Form(...),
+    problem_data: schemas.ProblemCreate,
     image: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db), 
     current_user: User = Depends(get_verified_user), 
     redis = Depends(get_redis)
 ):  
-    problem_data = schemas.ProblemCreate(title=title, description=description)
     new_problem = await crud.create_problem(db, problem_data, image, current_user.id)
     
     await redis.delete(problems_list_key(current_user.id, False))
@@ -261,7 +259,7 @@ async def get_problems(
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
 
-@app.get("/problems/{id}", response_model=schemas.ProblemRead)
+@app.get("/problems/{id}", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(5, Duration.SECOND * 30))))])
 async def get_problem(
     id: int, 
     db: AsyncSession = Depends(get_db), 

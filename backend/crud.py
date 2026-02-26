@@ -14,7 +14,7 @@ from utils import upload_file
 async def create_user(db: AsyncSession, user: schemas.UserCreate):
     db_user = models.User(
         username=user.username,
-        email=user.email,
+        email=user.email.lower(),
         password=hash_pass(user.password),
     )
     db.add(db_user)
@@ -32,7 +32,7 @@ async def get_user_by_id(db: AsyncSession, user_id: int):
 
 async def get_user_by_email(db: AsyncSession, email: str):
     result = await db.execute(
-        select(models.User).where(models.User.email == email)
+        select(models.User).where(models.User.email == email.lower())
     )
     return result.scalar_one_or_none()
 

@@ -91,16 +91,16 @@ class ConnectionManager:
         for connection in self.admin_connections:
             try:
                 await connection.send_text(message)
-            except:
-                pass
+            except Exception as e:
+                print(f"Error broadcasting to admin: {e}")
 
         user_id = problem_data.user_id
         if user_id in self.user_connections:
             for connection in self.user_connections[user_id]:
                 try:
                     await connection.send_text(message)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"Error broadcasting to admin: {e}")
 
     async def broadcast_problem_update(self, problem_data: any):
             payload = {
@@ -112,16 +112,16 @@ class ConnectionManager:
             for connection in self.admin_connections:
                 try:
                     await connection.send_text(message)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"Error broadcasting to admin: {e}")
             
             user_id = problem_data.user_id
             if user_id in self.user_connections:
                 for connection in self.user_connections[user_id]:
                     try:
                         await connection.send_text(message)
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"Error broadcasting to admin: {e}")
 
 conf = ConnectionConfig(
     MAIL_USERNAME = os.getenv("MAIL_USERNAME"),
