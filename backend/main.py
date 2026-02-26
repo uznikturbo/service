@@ -480,3 +480,33 @@ async def problem_chat(
 
     except WebSocketDisconnect:
         manager.chat_disconnect(websocket, id)
+
+
+# ========== GAMES ENPOINTS ============
+
+@app.post("/users/me/snake", response_model=schemas.SnakeRead)
+async def snake_game(stats: schemas.SnakeCreate, db: AsyncSession = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_verified_user)):
+    stats.user_id = current_user.id
+    await crud.create_snake(db, stats)
+
+    await redis.delete("snake_top_10")
+
+    return await get_snake_game(db, redis, current_user)
+
+
+@app.get("/users/me/snake", response_model=schemas.SnakeRead)
+async def get_snake_game(db: AsyncSession = Depends(get_db), redis = Depends(get_redis), current_user: User = Depends(get_verified_user)):
+    cache_key = "snake_top_10"
+    cached_top = await redis.get(cache_key)
+    if cached_top:
+        top_10 = json.loads(cached_top)
+    else:
+        top_10_raw = await crud.get_top_10(db)
+        top_10 = jsonable_encoder(top_10_raw)
+        await redis.set(cache_key, json.dumps(top_10), ex=60)
+
+    for entry in top_10:
+        entry["is_current_user"] = (entry["user_id"] == current_user.id)
+
+    user_stats = await crud.get_user_stats(db, current_user.id)
+    return {"top_points": top_10, "user_points": user_stats}

@@ -1,7 +1,7 @@
 services:
 
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: postgres_db
     restart: always
     environment:
@@ -34,7 +34,6 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/servicedesk_db
       - REDIS_URL=redis://:very_strong_pass123@redis:6379/0
     restart: always
 

@@ -46,6 +46,7 @@ class User(Base):
     assigned_problems = relationship("Problem", foreign_keys=[Problem.admin_id], back_populates="admin")
     responses = relationship("AdminResponse", back_populates="admin")
     service_record = relationship("ServiceRecord", back_populates="user")
+    snake_points = relationship("SnakeStats", back_populates="user")
 
 class AdminResponse(Base):
     __tablename__ = "admin_responses"
@@ -85,3 +86,12 @@ class ProblemMessage(Base):
 
     sender = relationship("User")
     problem = relationship("Problem", back_populates="messages")
+
+
+class SnakeStats(Base):
+    __tablename__ = "snake_stats"
+    id = Column(Integer, primary_key=True)
+    points = Column(Integer)
+    user_id = Column(Integer, ForeignKey("users.id"))
+
+    user = relationship("User")

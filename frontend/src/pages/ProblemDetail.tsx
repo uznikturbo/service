@@ -480,17 +480,23 @@ export function ProblemDetail({ problem: initialProblem, user, onBack, onUpdate 
 
         {/* Sidebar Actions */}
         <div>
-          {user.is_admin && (
+            {user.is_admin && (
             <div className="card" style={{ marginBottom: 12 }}>
               <div className="card-header">
-                <div className="card-title">Дії адміна</div>
+              <div className="card-title">Дії адміна</div>
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {!problem.admin_id && (
-                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={assign} disabled={loading}>
-                    ◆ Прийняти заявку
-                  </button>
-                )}
+              {!problem.admin_id && user.id !== problem.user_id && (
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={assign} disabled={loading}>
+                ◆ Прийняти заявку
+                </button>
+              )}
+              {!problem.admin_id && user.id === problem.user_id && (
+                <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'var(--bg2)', border: '1px solid var(--border)', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
+                ⚠️ Не можна прийняти власну заявку
+                </div>
+              )}
+
                 {!isClosed && problem.admin_id === user.id && (
                   <>
                     {problem.admin_id === user.id && !problem.service_record && (

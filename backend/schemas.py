@@ -140,3 +140,18 @@ class RefreshTokenRequest(BaseModel):
 class TgLinkData(BaseModel):
     token: str
     telegram_id: int
+
+# ========= SNAKE SCHEMAS =============
+
+class SnakeCreate(BaseModel):
+    user_id: int
+    points: int
+    username: Optional[str] = None
+    is_current_user: Optional[bool] = None
+
+
+class SnakeRead(BaseModel):
+    top_points: List[SnakeCreate]
+    user_points: Optional[SnakeCreate] = None
+
+    model_config = {"from_attributes": True}

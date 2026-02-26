@@ -279,3 +279,44 @@ async def get_service_record(db: AsyncSession, problem_id: int):
     query = select(models.ServiceRecord).where(models.ServiceRecord.problem_id == problem_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
+
+# ========== SNAKE ============
+
+async def create_snake(db: AsyncSession, stats: schemas.SnakeCreate):
+    query = select(models.SnakeStats).where(models.SnakeStats.user_id == stats.user_id)
+    result = await db.execute(query)
+    snake = result.scalar_one_or_none()
+
+    if snake:
+        if stats.points > snake.points:
+            snake.points = stats.points
+    else:
+        snake = models.SnakeStats(**stats.model_dump(exclude={"username", "is_current_user"}))
+        db.add(snake)
+
+    await db.commit()
+    await db.refresh(snake)
+    return snake
+
+
+async def get_top_10(db: AsyncSession):
+    query = (
+        select(models.SnakeStats, models.User.username)
+        .join(models.User, models.User.id == models.SnakeStats.user_id)
+        .order_by(models.SnakeStats.points.desc())
+        .limit(10)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    return [
+        {"user_id": row.SnakeStats.user_id, "points": row.SnakeStats.points, "username": row.username}
+        for row in rows
+    ]
+
+
+async def get_user_stats(db: AsyncSession, user_id: int):
+    query = select(models.SnakeStats).where(models.SnakeStats.user_id == user_id)
+    result = await db.execute(query)
+    user_snake_stats = result.scalar_one_or_none()
+
+    return user_snake_stats
