@@ -259,7 +259,20 @@ async def get_problems(
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
 
-@app.get("/problems/{id}", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(5, Duration.SECOND * 30))))])
+@app.get("/problems/tg", response_model=List[schemas.ProblemListRead])
+async def get_problems_tg(tg_id: int, db: AsyncSession = Depends(get_db)):
+    user = await crud.get_user_by_telegram_id(db, tg_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    
+    problems = await crud.get_problems_by_user_id(db, user.id)
+
+    if not problems:
+        return None
+    
+    return problems
+
+@app.get("/problems/{id: int}", response_model=schemas.ProblemRead, dependencies=[Depends(RateLimiter(Limiter(Rate(5, Duration.SECOND * 30))))])
 async def get_problem(
     id: int, 
     db: AsyncSession = Depends(get_db), 
@@ -290,7 +303,7 @@ async def get_problem(
     await redis.set(key, json.dumps(serialized), ex=600)
     return serialized
 
-@app.delete("/problems/{id}")
+@app.delete("/problems/{id: int}")
 async def delete_problem(
     id: int, 
     db: AsyncSession = Depends(get_db), 
@@ -309,6 +322,7 @@ async def delete_problem(
     await redis.delete(f"problem:{id}")
 
     return await crud.delete_problem(db, id)
+
 
 # ========= ADMIN ENDPOINTS =========
 
