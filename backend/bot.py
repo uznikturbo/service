@@ -2,10 +2,9 @@ import asyncio
 import os
 
 import httpx
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,12 +16,13 @@ API_URL_CHECK = "http://fastapi_backend:8000/users/telegram/check"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-def get_inline_kb():
-    kb = InlineKeyboardBuilder()
-    kb.add(
-        InlineKeyboardButton(text="📄 Заявки", callback_data="problems")
-    )
 
+kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📄 Заявки")]
+    ],
+    resize_keyboard=True
+)
 
 @dp.message(CommandStart(deep_link=True))
 async def handle_start(message: types.Message, command: CommandObject):
@@ -35,7 +35,7 @@ async def handle_start(message: types.Message, command: CommandObject):
                 res = await client.post(API_URL_CONFIRM, json={"token": token, "telegram_id": tg_id})
                 if res.status_code == 200:
                     data = res.json()
-                    await message.answer(f"✅✅ Ваш Telegram успішно прив'язаний до акаунта {data.get('username')}\n\nТепер ви будете отримувати сповіщення про зміну статусу ваших заявок сюди😀")
+                    await message.answer(f"✅✅ Ваш Telegram успішно прив'язаний до акаунта {data.get('username')}\n\nТепер ви будете отримувати сповіщення про зміну статусу ваших заявок сюди😀", reply_markup=kb)
                 else:
                     err = res.json().get('detail', "Невідома помилка при прив'язці")
                     await message.answer(f"❌❌ {err}")
@@ -48,13 +48,14 @@ async def handle_start(message: types.Message, command: CommandObject):
             if res.status_code == 200:
                 data = res.json()
                 if data.get("linked"):
-                    await message.asnwer(f"👋 Привіт, {data.get('username')}!\nВаш акаунт вже прив'язаний до Service Desk😉")
+                    await message.answer(f"👋 Привіт, {data.get('username')}!\nВаш акаунт вже прив'язаний до Service Desk😉", reply_markup=kb)
             else:
                 await message.answer("👋 Привіт!\nЯ бот Service Desk.\n\nЯ поки що не знаю хто ви. Щоб отримувати сповіщення, перейдіть у свій профіль на сайті та натисніть кнопку «Прив'язати Telegram».")
         except Exception as e:
             await message.answer("👋 Привіт! На жаль, зараз немає зв'язку з основним сервером.")
 
 @dp.message(Command("problems"))
+@dp.message(F.text.lower().contains("заявки"))
 async def handle_problems(message: types.Message):
     async with httpx.AsyncClient() as client:
         try:
@@ -63,7 +64,7 @@ async def handle_problems(message: types.Message):
 
                 data = res.json()
                 if not data:
-                    await message.answer("У вас немає заявок😭😭. Ви можете створити їх на сайті ServiceDesk😉")
+                    await message.answer("У вас немає заявок😭😭. Ви можете створити їх на сайті ServiceDesk😉", reply_markup=kb)
                 else:
                     text = "Ваші заявки:\n\n"
                     for problem in data:
@@ -73,7 +74,7 @@ async def handle_problems(message: types.Message):
 
                         text += f"Заявка №{p_id}\nНазва: {p_title}\nСтатус: {p_status}\n\n"
 
-                    await message.answer(text)
+                    await message.answer(text, reply_markup=kb)
             elif res.status_code == 404:
                 await message.answer("Ваш акаунт не прив'язаний до сайту")
 

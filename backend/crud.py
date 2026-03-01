@@ -128,7 +128,6 @@ async def unlink_user_tg(db: AsyncSession, user_id: int):
 
 def _problem_query_options():
     return [
-        selectinload(models.Problem.response),
         selectinload(models.Problem.service_record),
         selectinload(models.Problem.user)
     ]

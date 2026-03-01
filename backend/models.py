@@ -28,7 +28,6 @@ class Problem(Base):
     user = relationship("User", foreign_keys=[user_id], back_populates="problems")
     admin = relationship("User", foreign_keys=[admin_id],back_populates="assigned_problems")
 
-    response = relationship("AdminResponse", back_populates="problem", uselist=False)
     service_record = relationship("ServiceRecord", back_populates="problem", uselist=False)
     messages = relationship("ProblemMessage", back_populates="problem", order_by="ProblemMessage.date_created", cascade="all, delete-orphan", lazy="selectin")
 
@@ -44,7 +43,6 @@ class User(Base):
 
     problems = relationship("Problem", foreign_keys=[Problem.user_id],back_populates="user")
     assigned_problems = relationship("Problem", foreign_keys=[Problem.admin_id], back_populates="admin")
-    responses = relationship("AdminResponse", back_populates="admin")
     service_record = relationship("ServiceRecord", back_populates="user")
     snake_points = relationship("SnakeStats", back_populates="user")
 
